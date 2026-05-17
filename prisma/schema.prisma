@@ -1,0 +1,72 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model ProviderCategory {
+  id          String   @id @default(uuid())
+  slug        String   @unique
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  providers      ProviderConnection[]
+  fallbackConfig CategoryFallbackConfig?
+}
+
+model ProviderConnection {
+  id                 String   @id @default(uuid())
+  categoryId         String
+  name               String
+  slug               String   @unique
+  baseUrl            String
+  authType           String
+  authConfig         String?
+  healthStatus       String   @default("HEALTHY")
+  failureCount       Int      @default(0)
+  cooldownUntil      DateTime?
+  lastProbedAt       DateTime?
+  priority           Int      @default(0)
+  isActive           Boolean  @default(true)
+  rateLimitPerMinute Int      @default(60)
+  timeoutMs          Int      @default(3000)
+  metadata           String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  category ProviderCategory @relation(fields: [categoryId], references: [id])
+}
+
+model CategoryFallbackConfig {
+  id                      String   @id @default(uuid())
+  categoryId              String   @unique
+  strategy                String   @default("priority")
+  maxRetries              Int      @default(3)
+  retryDelayMs            Int      @default(1000)
+  timeoutMs               Int      @default(3000)
+  circuitBreakerThreshold Int      @default(3)
+  cooldownMinutes         Int      @default(5)
+  canaryIntervalMs        Int      @default(300000)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  category ProviderCategory @relation(fields: [categoryId], references: [id])
+}
+
+model RouterMetadata {
+  id                   String   @id @default(uuid())
+  requestId            String
+  category             String
+  primaryProvider      String
+  fallbackProvider     String?
+  totalLatencyMs       Int
+  providerLatencyMs    Int?
+  statusCode           Int
+  circuitBreakerStatus String?
+  cached               Boolean  @default(false)
+  timestamp            DateTime @default(now())
+}

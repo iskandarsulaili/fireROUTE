@@ -1,0 +1,5 @@
+version: '3.8'
+services:
+  # SQLite is file-based; no database service needed
+  # Add other services here (redis, etc.) as needed
+  # For now, SQLite runs embedded in the Node.js process
