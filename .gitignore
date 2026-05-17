@@ -4,5 +4,6 @@ dist/
 *.log
 prisma/*.db
 coverage/
-doc/
-doc/api-references/
+doc/api-references/_generator/
+doc/api-references/_bg-workers/
+doc/api-references/_job-progress/

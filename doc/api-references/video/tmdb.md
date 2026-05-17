@@ -1,0 +1,332 @@
+# TMDb
+
+## Provider metadata
+- Category: `Video`
+- Provider slug: `tmdb`
+- Official docs pages used:
+  - `https://developer.themoviedb.org/docs/getting-started`
+  - `https://developer.themoviedb.org/docs/authentication-application`
+  - `https://developer.themoviedb.org/docs/errors`
+  - `https://developer.themoviedb.org/docs/rate-limiting`
+  - `https://developer.themoviedb.org/docs/search-and-query-for-details`
+  - `https://developer.themoviedb.org/reference/intro/getting-started`
+  - `https://developer.themoviedb.org/openapi`
+  - `https://developer.themoviedb.org/openapi/tmdb-api.json`
+- Main API base URL: `https://api.themoviedb.org`
+- Versioned base path confirmed in official docs: `/3`
+- Canonical API base URL: `https://api.themoviedb.org/3`
+- Auth models confirmed in official docs:
+  - application auth with `api_key` query parameter
+  - application auth with `Authorization: Bearer TMDB_READ_ACCESS_TOKEN`
+  - user/session auth for account-specific and write operations via TMDb session flow
+- Response format: JSON
+- Manually confirmed route count: `148` distinct OpenAPI path objects from the official TMDb v3 OpenAPI file
+
+## Authentication
+- The official Application auth page says v3 authentication is controlled either by a single `api_key` query parameter or by sending an access token as a `Bearer` token.
+- Official bearer example:
+  - `Authorization: Bearer TMDB_READ_ACCESS_TOKEN`
+- The docs say you request an API key from the TMDb account API settings page.
+- User-scoped flows are documented under the authentication endpoints and produce guest sessions or user sessions.
+- Account/list/rating write routes require session-style authorization on top of application auth. Example from the OpenAPI file:
+  - `POST /3/list/{list_id}/add_item` requires query parameter `session_id`
+
+## API-wide behavior
+- The official OpenAPI file publishes server URL `https://api.themoviedb.org`, and every documented v3 route in that file sits under `/3`.
+- TMDb v3 routes use `GET`, `POST`, and `DELETE`.
+- The official search guide shows JSON responses and bearer-authenticated HTTPS requests.
+- The official examples show localized requests using `language`, region-sensitive requests using `region`, and detail expansion using `append_to_response`.
+- The official search workflow page recommends a common pattern:
+  1. search for a movie, TV show, or person
+  2. read the returned `id`
+  3. query the relevant details endpoint with that id
+
+## Pagination, filtering, and query conventions
+- Many collection/list/search endpoints use the `page` query parameter.
+- The official errors page documents error code `22` as: `Invalid page: Pages start at 1 and max at 500. They are expected to be an integer.`
+- Search endpoints commonly expose:
+  - `query`
+  - `page`
+  - `language`
+  - optional regional/adult filters such as `region` and `include_adult`
+- Detail endpoints commonly expose:
+  - path IDs such as `movie_id`, `series_id`, `season_number`, `episode_number`
+  - optional `language`
+  - optional `append_to_response`
+- Discover endpoints expose large filter surfaces. Officially confirmed examples from `GET /3/discover/movie` include:
+  - `certification`, `certification.gte`, `certification.lte`, `certification_country`
+  - `include_adult`, `include_video`
+  - `language`, `page`, `region`
+  - `primary_release_year`, `year`
+  - `primary_release_date.gte`, `primary_release_date.lte`
+  - `release_date.gte`, `release_date.lte`
+  - `sort_by`
+  - `vote_average.gte`, `vote_average.lte`, `vote_count.gte`, `vote_count.lte`
+  - `watch_region`
+  - `with_cast`, `with_companies`, `with_crew`, `with_genres`, `with_keywords`, `with_origin_country`, `with_original_language`, `with_people`, `with_release_type`, `with_runtime.gte`, `with_runtime.lte`, `with_watch_monetization_types`, `with_watch_providers`
+  - `without_companies`, `without_genres`, `without_keywords`, `without_watch_providers`
+
+## Rate limits
+- The official `Rate Limiting` guide currently presents a `Legacy Rate Limits` notice rather than a current global quota table.
+- During this review, the public guide did not expose a current blanket request-per-second or request-per-day limit for all users.
+- The official errors table still includes a rate-limit example entry:
+  - error code `25`
+  - HTTP `429`
+  - message: `Your request count (#) is over the allowed limit of (40).`
+- fireROUTE should treat TMDb rate-limit behavior as officially under-documented in the public guide and capture real retry behavior separately during implementation.
+
+## Errors
+- The official errors page documents TMDb-specific numeric error codes alongside HTTP statuses.
+- Important confirmed examples:
+  - `3` / HTTP `401` - authentication failed / insufficient permissions
+  - `5` / HTTP `422` - invalid parameters
+  - `6` / HTTP `404` - invalid id / prerequisite id not found
+  - `7` / HTTP `401` - invalid API key
+  - `9` / HTTP `503` - service offline
+  - `11` / HTTP `500` - internal error
+  - `18` / HTTP `400` - validation failed
+  - `19` / HTTP `406` - invalid accept header
+  - `20` / HTTP `422` - invalid date range longer than 14 days
+  - `22` / HTTP `400` - invalid page
+  - `23` / HTTP `400` - invalid date format; expected `YYYY-MM-DD`
+  - `24` / HTTP `504` - backend timeout
+  - `25` / HTTP `429` - request count over limit
+
+## High-value endpoint patterns and confirmed parameters
+
+### Search movies
+- Method: `GET`
+- Path: `/3/search/movie`
+- Required query parameters:
+  - `query`
+- Optional confirmed query parameters:
+  - `include_adult`
+  - `language`
+  - `primary_release_year`
+  - `page`
+  - `region`
+  - `year`
+
+### Get movie details
+- Method: `GET`
+- Path: `/3/movie/{movie_id}`
+- Required path parameters:
+  - `movie_id`
+- Optional confirmed query parameters:
+  - `append_to_response`
+  - `language`
+
+### Discover movies
+- Method: `GET`
+- Path: `/3/discover/movie`
+- Purpose: filtered browsing across the movie catalog
+- Important confirmed query parameters:
+  - `page`
+  - `sort_by`
+  - `language`
+  - `region`
+  - `include_adult`
+  - `include_video`
+  - release-date, vote, runtime, watch-provider, keyword, company, genre, cast, crew, and people filters listed above
+
+### Get TV season details
+- Method: `GET`
+- Path: `/3/tv/{series_id}/season/{season_number}`
+- Required path parameters:
+  - `series_id`
+  - `season_number`
+- Optional confirmed query parameters:
+  - `append_to_response`
+  - `language`
+
+### Add an item to a list
+- Method: `POST`
+- Path: `/3/list/{list_id}/add_item`
+- Required path parameters:
+  - `list_id`
+- Required query parameters:
+  - `session_id`
+- Request body content type confirmed in official OpenAPI:
+  - `application/json`
+
+## Official route inventory by resource group
+- `authentication` (`7` paths)
+  - `GET /3/authentication`
+  - `GET /3/authentication/guest_session/new`
+  - `GET /3/authentication/token/new`
+  - `POST /3/authentication/session/new`
+  - `POST /3/authentication/session/convert/4`
+  - `POST /3/authentication/token/validate_with_login`
+  - `DELETE /3/authentication/session`
+- `account` (`11` paths)
+  - `GET /3/account/{account_id}`
+  - `POST /3/account/{account_id}/favorite`
+  - `POST /3/account/{account_id}/watchlist`
+  - `GET /3/account/{account_id}/favorite/movies`
+  - `GET /3/account/{account_id}/favorite/tv`
+  - `GET /3/account/{account_id}/lists`
+  - `GET /3/account/{account_id}/rated/movies`
+  - `GET /3/account/{account_id}/rated/tv`
+  - `GET /3/account/{account_id}/rated/tv/episodes`
+  - `GET /3/account/{account_id}/watchlist/movies`
+  - `GET /3/account/{account_id}/watchlist/tv`
+- `certification` (`2` paths)
+  - `GET /3/certification/movie/list`
+  - `GET /3/certification/tv/list`
+- `collection` (`3` paths)
+  - `GET /3/collection/{collection_id}`
+  - `GET /3/collection/{collection_id}/images`
+  - `GET /3/collection/{collection_id}/translations`
+- `company` (`3` paths)
+  - `GET /3/company/{company_id}`
+  - `GET /3/company/{company_id}/alternative_names`
+  - `GET /3/company/{company_id}/images`
+- `configuration` (`6` paths)
+  - `GET /3/configuration`
+  - `GET /3/configuration/countries`
+  - `GET /3/configuration/jobs`
+  - `GET /3/configuration/languages`
+  - `GET /3/configuration/primary_translations`
+  - `GET /3/configuration/timezones`
+- `credit` (`1` path)
+  - `GET /3/credit/{credit_id}`
+- `discover` (`2` paths)
+  - `GET /3/discover/movie`
+  - `GET /3/discover/tv`
+- `find` (`1` path)
+  - `GET /3/find/{external_id}`
+- `genre` (`2` paths)
+  - `GET /3/genre/movie/list`
+  - `GET /3/genre/tv/list`
+- `guest_session` (`3` paths)
+  - `GET /3/guest_session/{guest_session_id}/rated/movies`
+  - `GET /3/guest_session/{guest_session_id}/rated/tv`
+  - `GET /3/guest_session/{guest_session_id}/rated/tv/episodes`
+- `keyword` (`2` paths)
+  - `GET /3/keyword/{keyword_id}`
+  - `GET /3/keyword/{keyword_id}/movies`
+- `list` (`6` paths)
+  - `POST /3/list/{list_id}/add_item`
+  - `GET /3/list/{list_id}/item_status`
+  - `POST /3/list/{list_id}/clear`
+  - `POST /3/list`
+  - `GET /3/list/{list_id}`
+  - `DELETE /3/list/{list_id}`
+  - `POST /3/list/{list_id}/remove_item`
+- `movie` (`23` paths)
+  - `GET /3/movie/changes`
+  - `GET /3/movie/now_playing`
+  - `GET /3/movie/popular`
+  - `GET /3/movie/top_rated`
+  - `GET /3/movie/upcoming`
+  - `GET /3/movie/{movie_id}`
+  - `GET /3/movie/{movie_id}/account_states`
+  - `GET /3/movie/{movie_id}/alternative_titles`
+  - `GET /3/movie/{movie_id}/changes`
+  - `GET /3/movie/{movie_id}/credits`
+  - `GET /3/movie/{movie_id}/external_ids`
+  - `GET /3/movie/{movie_id}/images`
+  - `GET /3/movie/{movie_id}/keywords`
+  - `GET /3/movie/latest`
+  - `GET /3/movie/{movie_id}/lists`
+  - `GET /3/movie/{movie_id}/recommendations`
+  - `GET /3/movie/{movie_id}/release_dates`
+  - `GET /3/movie/{movie_id}/reviews`
+  - `GET /3/movie/{movie_id}/similar`
+  - `GET /3/movie/{movie_id}/translations`
+  - `GET /3/movie/{movie_id}/videos`
+  - `GET /3/movie/{movie_id}/watch/providers`
+  - `POST /3/movie/{movie_id}/rating`
+  - `DELETE /3/movie/{movie_id}/rating`
+- `network` (`3` paths)
+  - `GET /3/network/{network_id}`
+  - `GET /3/network/{network_id}/alternative_names`
+  - `GET /3/network/{network_id}/images`
+- `person` (`12` paths)
+  - `GET /3/person/changes`
+  - `GET /3/person/popular`
+  - `GET /3/person/{person_id}`
+  - `GET /3/person/{person_id}/changes`
+  - `GET /3/person/{person_id}/combined_credits`
+  - `GET /3/person/{person_id}/external_ids`
+  - `GET /3/person/{person_id}/images`
+  - `GET /3/person/latest`
+  - `GET /3/person/{person_id}/movie_credits`
+  - `GET /3/person/{person_id}/tv_credits`
+  - `GET /3/person/{person_id}/tagged_images`
+  - `GET /3/person/{person_id}/translations`
+- `review` (`1` path)
+  - `GET /3/review/{review_id}`
+- `search` (`7` paths)
+  - `GET /3/search/collection`
+  - `GET /3/search/company`
+  - `GET /3/search/keyword`
+  - `GET /3/search/movie`
+  - `GET /3/search/multi`
+  - `GET /3/search/person`
+  - `GET /3/search/tv`
+- `trending` (`4` paths)
+  - `GET /3/trending/all/{time_window}`
+  - `GET /3/trending/movie/{time_window}`
+  - `GET /3/trending/person/{time_window}`
+  - `GET /3/trending/tv/{time_window}`
+- `tv` (`46` paths)
+  - `GET /3/tv/changes`
+  - `GET /3/tv/airing_today`
+  - `GET /3/tv/on_the_air`
+  - `GET /3/tv/popular`
+  - `GET /3/tv/top_rated`
+  - `GET /3/tv/{series_id}`
+  - `GET /3/tv/{series_id}/account_states`
+  - `GET /3/tv/{series_id}/aggregate_credits`
+  - `GET /3/tv/{series_id}/alternative_titles`
+  - `GET /3/tv/{series_id}/changes`
+  - `GET /3/tv/{series_id}/content_ratings`
+  - `GET /3/tv/{series_id}/credits`
+  - `GET /3/tv/{series_id}/episode_groups`
+  - `GET /3/tv/{series_id}/external_ids`
+  - `GET /3/tv/{series_id}/images`
+  - `GET /3/tv/{series_id}/keywords`
+  - `GET /3/tv/latest`
+  - `GET /3/tv/{series_id}/lists`
+  - `GET /3/tv/{series_id}/recommendations`
+  - `GET /3/tv/{series_id}/reviews`
+  - `GET /3/tv/{series_id}/screened_theatrically`
+  - `GET /3/tv/{series_id}/similar`
+  - `GET /3/tv/{series_id}/translations`
+  - `GET /3/tv/{series_id}/videos`
+  - `GET /3/tv/{series_id}/watch/providers`
+  - `POST /3/tv/{series_id}/rating`
+  - `DELETE /3/tv/{series_id}/rating`
+  - `GET /3/tv/{series_id}/season/{season_number}`
+  - `GET /3/tv/{series_id}/season/{season_number}/account_states`
+  - `GET /3/tv/{series_id}/season/{season_number}/aggregate_credits`
+  - `GET /3/tv/season/{season_id}/changes`
+  - `GET /3/tv/{series_id}/season/{season_number}/credits`
+  - `GET /3/tv/{series_id}/season/{season_number}/external_ids`
+  - `GET /3/tv/{series_id}/season/{season_number}/images`
+  - `GET /3/tv/{series_id}/season/{season_number}/translations`
+  - `GET /3/tv/{series_id}/season/{season_number}/videos`
+  - `GET /3/tv/{series_id}/season/{season_number}/watch/providers`
+  - `GET /3/tv/{series_id}/season/{season_number}/episode/{episode_number}`
+  - `GET /3/tv/{series_id}/season/{season_number}/episode/{episode_number}/account_states`
+  - `GET /3/tv/episode/{episode_id}/changes`
+  - `GET /3/tv/{series_id}/season/{season_number}/episode/{episode_number}/credits`
+  - `GET /3/tv/{series_id}/season/{season_number}/episode/{episode_number}/external_ids`
+  - `GET /3/tv/{series_id}/season/{season_number}/episode/{episode_number}/images`
+  - `GET /3/tv/{series_id}/season/{season_number}/episode/{episode_number}/translations`
+  - `GET /3/tv/{series_id}/season/{season_number}/episode/{episode_number}/videos`
+  - `POST /3/tv/{series_id}/season/{season_number}/episode/{episode_number}/rating`
+  - `DELETE /3/tv/{series_id}/season/{season_number}/episode/{episode_number}/rating`
+  - `GET /3/tv/episode_group/{tv_episode_group_id}`
+- `watch` (`3` paths)
+  - `GET /3/watch/providers/regions`
+  - `GET /3/watch/providers/movie`
+  - `GET /3/watch/providers/tv`
+
+## fireROUTE integration notes
+- Prefer bearer-token auth for server-to-server integrations; the official docs present it as the default method.
+- Use `/search/*` plus details endpoints for canonical lookup workflows.
+- Preserve `append_to_response` passthrough support because the official docs call it out as a first-class optimization mechanism.
+- Expect account/list/rating writes to require user-session handling rather than simple app-only auth.
+- Capture actual retry/backoff behavior separately because the current public rate-limit page is only a legacy note.
