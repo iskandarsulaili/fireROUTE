@@ -2,8 +2,12 @@ node_modules/
 dist/
 .env
 *.log
-prisma/*.db
+*.db
+*.sqlite
 coverage/
 doc/api-references/_generator/
 doc/api-references/_bg-workers/
 doc/api-references/_job-progress/
+500
+fireroute.service
+*.cookie

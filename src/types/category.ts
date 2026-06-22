@@ -27,6 +27,8 @@ export enum AuthType {
   OAUTH = 'oauth',
   /** Provider does not require authentication. */
   NO_AUTH = 'no_auth',
+  /** Header-based auth with key/value pair (e.g., Authorization: METToken <key>). */
+  HEADER = 'header',
 }
 
 /** Category configuration. */

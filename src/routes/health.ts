@@ -12,7 +12,7 @@ export async function healthRoutes(
   _opts: unknown,
 ): Promise<void> {
   fastify.get('/health', async (_request, _reply) => {
-    const startTime = Date.now();
+    // const startTime = Date.now();
     let dbConnected = false;
     let dbLatency = 0;
 

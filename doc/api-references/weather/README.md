@@ -1,10 +1,11 @@
 # Weather
 
-- Providers documented: `34`
-- Generated at (UTC): `2026-05-17 01:53:38Z`
+- Providers documented: `35`
+- Generated at (UTC): `2026-06-21 05:00:00Z`
+- New provider: Malaysian Meteorological Department (MET Malaysia) — official Malaysian government weather data
 
 | Provider | Status | Routes found | File | Docs URL |
-|---|---|---:|---|---|
+|---|---|---|---:|---|
 | 7Timer! | `manually_documented` | 2 | [7timer.md](7timer.md) | `http://www.7timer.info/doc.php?lang=en` |
 | AccuWeather | `manually_documented` | 97 | [accuweather.md](accuweather.md) | `https://developer.accuweather.com/apis` |
 | Aemet | `manually_documented` | 62 | [aemet.md](aemet.md) | `https://opendata.aemet.es/dist/index.html` |
@@ -17,6 +18,7 @@
 | HG Weather | `manually_documented` | 2 | [hg-weather.md](hg-weather.md) | `https://hgbrasil.com/status/weather` |
 | Hong Kong Obervatory | `manually_documented` | 5 | [hong-kong-obervatory.md](hong-kong-obervatory.md) | `https://www.hko.gov.hk/en/abouthko/opendata_intro.htm` |
 | IPMA | `manually_documented` | 9 | [ipma.md](ipma.md) | `https://api.ipma.pt/open-data/` |
+| **Malaysian Meteorological Department** | `manually_documented` | **7** | **[malaysian-met-department.md](malaysian-met-department.md)** | **`https://api.met.gov.my/v2.1/`** |
 | MetaWeather | `manually_documented` | 0 | [metaweather.md](metaweather.md) | `https://www.metaweather.com/api/` |
 | Meteorologisk Institutt | `manually_documented` | 3 | [meteorologisk-institutt.md](meteorologisk-institutt.md) | `https://api.met.no/weatherapi/documentation` |
 | Micro Weather | `manually_documented` | 0 | [micro-weather.md](micro-weather.md) | `https://m3o.com/weather/api` |

@@ -1,17 +1,36 @@
 import type { CategoryAdapter } from '../types/adapter.js';
 import { WeatherAdapter } from './weather-adapter.js';
+import { EmailAdapter } from './email-adapter.js';
+import { GamesAdapter } from './games-adapter.js';
+import { PersonalityAdapter } from './personality-adapter.js';
+import { ArtAdapter } from './art-adapter.js';
+import { BooksAdapter } from './books-adapter.js';
+import { ScienceAdapter } from './science-adapter.js';
+import { DictionaryAdapter } from './dictionary-adapter.js';
+import { EnvironmentAdapter } from './environment-adapter.js';
+import { MusicAdapter } from './music-adapter.js';
+import { EntertainmentAdapter } from './entertainment-adapter.js';
 import type { Logger } from './base-adapter.js';
 
 /**
  * Registry of all category adapters.
  * Each category slug maps to its adapter instance.
- * Add new adapters here as categories are implemented.
  */
 class AdapterRegistry {
   private readonly adapters: Map<string, CategoryAdapter> = new Map();
 
   constructor(logger?: Logger) {
-    this.register(logger ? new WeatherAdapter(logger) : new WeatherAdapter());
+    this.register(new WeatherAdapter(logger));
+    this.register(new EmailAdapter(logger));
+    this.register(new GamesAdapter(logger));
+    this.register(new PersonalityAdapter(logger));
+    this.register(new ArtAdapter(logger));
+    this.register(new BooksAdapter(logger));
+    this.register(new ScienceAdapter(logger));
+    this.register(new DictionaryAdapter(logger));
+    this.register(new EnvironmentAdapter(logger));
+    this.register(new MusicAdapter(logger));
+    this.register(new EntertainmentAdapter(logger));
   }
 
   /** Register a category adapter. */

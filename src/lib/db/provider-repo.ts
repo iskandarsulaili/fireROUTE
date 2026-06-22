@@ -23,7 +23,7 @@ function toDomain(model: any): ProviderConnection {
     name: model?.name ?? '',
     slug: model?.slug ?? '',
     baseUrl: model?.baseUrl ?? '',
-    authType: model?.authType ?? 'no_auth',
+    authType: (model?.authType ?? 'no_auth').toLowerCase(),
     authConfig,
     healthStatus: model?.healthStatus ?? ProviderHealthStatus.HEALTHY,
     failureCount: model?.failureCount ?? 0,
@@ -137,7 +137,10 @@ export const providerRepo = {
   async findBySlug(slug: string): Promise<ProviderConnection | null> {
     try {
       logger.debug({ slug }, 'Finding provider by slug');
-      const provider = await prisma.providerConnection.findUnique({ where: { slug } });
+      const provider = await prisma.providerConnection.findUnique({
+        where: { slug },
+        include: { category: true },
+      });
       return provider ? toDomain(provider) : null;
     } catch (error) {
       logger.error({ err: error, slug }, 'Failed to find provider by slug');

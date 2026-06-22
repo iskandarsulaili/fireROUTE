@@ -12,7 +12,7 @@ import type {
   UpstreamResponse,
 } from '../types/adapter.js';
 import type { CircuitBreakerDecision } from '../types/circuit-breaker.js';
-import type { FallbackChain, FallbackStep } from '../types/fallback.js';
+import type { FallbackChain } from '../types/fallback.js';
 import type { ExecuteResult } from '../types/execute.js';
 import { ProviderHealthStatus } from '../types/category.js';
 
@@ -210,7 +210,10 @@ export class FallbackExecutor {
           }
 
           if (upstreamResponse.statusCode >= 400 && upstreamResponse.statusCode < 500) {
-            if (!error?.retryable) {
+            // If there are still remaining providers to try, continue fallback
+            // even for non-retryable client errors (provider A may not have the
+            // resource but provider B might)
+            if (!error?.retryable && remainingProviders.length === 0) {
               return this.buildErrorResponse(
                 requestId,
                 category,
@@ -448,7 +451,7 @@ export class FallbackExecutor {
       id: provider.id,
       name: provider.name,
       baseUrl: provider.baseUrl,
-      authType: provider.authType as ProviderAdapterConfig['authType'],
+      authType: (provider.authType as string).toLowerCase() as ProviderAdapterConfig['authType'],
       authConfig: this.parseJsonField(provider.authConfig),
       metadata: this.parseJsonField(provider.metadata),
       rateLimitPerMinute: provider.rateLimitPerMinute,
@@ -517,13 +520,17 @@ export class FallbackExecutor {
     const startTime = Date.now();
 
     try {
+      const controller = new AbortController();
+      const timeoutMs = normalized.timeout ?? 10000;
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
       const response = await request(normalized.url, {
         method: normalized.method,
         headers: normalized.headers,
         body: normalized.body,
-        headersTimeout: normalized.timeout,
-        bodyTimeout: normalized.timeout,
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
 
       const latencyMs = Date.now() - startTime;
       const bodyText = await this.readBodyText(response.body);

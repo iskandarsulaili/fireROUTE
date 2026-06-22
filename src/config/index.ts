@@ -41,7 +41,7 @@ export const rateLimitConfig: RateLimitConfig = {
  * Upstream HTTP client defaults.
  */
 export const httpClientConfig: HttpClientConfig = {
-  defaultTimeout: 3000,
+  defaultTimeout: 8000,
   maxRetries: 3,
   retryDelay: 1000,
   maxConnections: 100,

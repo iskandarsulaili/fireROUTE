@@ -121,7 +121,7 @@ export async function v1ExecuteRoutes(
           ),
           headers: body.headers ?? {},
           body: body.body ?? null,
-          timeout: body.timeout ?? 3000,
+          timeout: body.timeout ?? 15000,
         };
 
         // Execute with fallback

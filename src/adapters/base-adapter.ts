@@ -55,7 +55,7 @@ export abstract class BaseAdapter implements CategoryAdapter {
    * Returns null if the response is not an error.
    */
   extractError(
-    provider: ProviderAdapterConfig,
+    _provider: ProviderAdapterConfig,
     upstreamResponse: UpstreamResponse,
   ): ProviderError | null {
     if (upstreamResponse.statusCode < 400) return null;
@@ -89,12 +89,15 @@ export abstract class BaseAdapter implements CategoryAdapter {
 
     if (provider.authType === AuthType.API_KEY && provider.authConfig) {
       const config = provider.authConfig as Record<string, string>;
-      if (config['in'] === 'query') {
+      const keyValue = config['apiKey'] as string;
+
+      if (config['in'] === 'path' && keyValue) {
+        // Inject API key into URL path (e.g. Pirate Weather: /forecast/{apikey}/...)
+        const pathKey = (config['pathKey'] as string) || '{apikey}';
+        url = url.replace(pathKey, keyValue);
+      } else if (config['in'] === 'query' && keyValue) {
         const keyName = (config['keyName'] as string) || 'api_key';
-        const keyValue = config['apiKey'] as string;
-        if (keyValue) {
-          params.append(keyName, keyValue);
-        }
+        params.append(keyName, keyValue);
       }
     }
 
@@ -122,6 +125,16 @@ export abstract class BaseAdapter implements CategoryAdapter {
 
       if (config['in'] !== 'query' && keyValue) {
         headers[headerName || keyName] = keyValue;
+      }
+    }
+
+    // Handle HEADER auth type (e.g., Authorization: METToken <key>)
+    if (provider.authType === AuthType.HEADER && provider.authConfig) {
+      const config = provider.authConfig as Record<string, string>;
+      const headerName = (config['header_name'] as string) || 'Authorization';
+      const headerValue = (config['header_value'] as string);
+      if (headerValue) {
+        headers[headerName] = headerValue;
       }
     }
 

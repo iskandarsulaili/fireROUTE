@@ -1,3 +1,13 @@
 export { BaseAdapter } from './base-adapter.js';
 export { WeatherAdapter } from './weather-adapter.js';
+export { EmailAdapter } from './email-adapter.js';
+export { GamesAdapter } from './games-adapter.js';
+export { PersonalityAdapter } from './personality-adapter.js';
+export { ArtAdapter } from './art-adapter.js';
+export { BooksAdapter } from './books-adapter.js';
+export { ScienceAdapter } from './science-adapter.js';
+export { DictionaryAdapter } from './dictionary-adapter.js';
+export { EnvironmentAdapter } from './environment-adapter.js';
+export { MusicAdapter } from './music-adapter.js';
+export { EntertainmentAdapter } from './entertainment-adapter.js';
 export { adapterRegistry } from './registry.js';
