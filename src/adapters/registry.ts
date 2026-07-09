@@ -10,6 +10,7 @@ import { DictionaryAdapter } from './dictionary-adapter.js';
 import { EnvironmentAdapter } from './environment-adapter.js';
 import { MusicAdapter } from './music-adapter.js';
 import { EntertainmentAdapter } from './entertainment-adapter.js';
+import { TransportationAdapter } from './transportation-adapter.js';
 import type { Logger } from './base-adapter.js';
 
 /**
@@ -31,6 +32,7 @@ class AdapterRegistry {
     this.register(new EnvironmentAdapter(logger));
     this.register(new MusicAdapter(logger));
     this.register(new EntertainmentAdapter(logger));
+    this.register(new TransportationAdapter(logger));
   }
 
   /** Register a category adapter. */
