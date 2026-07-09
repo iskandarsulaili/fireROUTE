@@ -15,6 +15,12 @@ interface UniversalScienceOutput {
   imageUrl: string | null;
   date: string | null;
   magnitude: number | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  copyright?: string | null;
+  mediaType?: string | null;
+  count?: number;
+  earthquakes?: unknown[];
   provider: string;
 }
 
@@ -31,6 +37,22 @@ export class ScienceAdapter extends BaseAdapter {
   ): Promise<NormalizedResponseData> {
     const raw = response.body as Record<string, unknown>;
     const slug = provider.name.toLowerCase();
+    
+    // Provider-specific normalization
+    if (slug.includes('usgs') || slug.includes('earthquake')) {
+      return this.transformEarthquake(provider, raw);
+    }
+    if (slug.includes('iss') || slug.includes('open')) {
+      return this.transformISS(provider, raw);
+    }
+    if (slug.includes('nasa') || slug.includes('apod')) {
+      return this.transformNASA(provider, raw);
+    }
+    if (slug.includes('launch') || slug.includes('spacex')) {
+      return this.transformLaunch(provider, raw);
+    }
+    
+    // Generic fallback
     const normalized: UniversalScienceOutput = {
       type: this.detectType(slug, raw),
       title: this.extractTitle(slug, raw),
@@ -41,6 +63,113 @@ export class ScienceAdapter extends BaseAdapter {
       provider: provider.name,
     };
     return { data: normalized, providerName: provider.name };
+  }
+
+  private async transformEarthquake(
+    provider: ProviderAdapterConfig,
+    raw: Record<string, unknown>,
+  ): Promise<NormalizedResponseData> {
+    const features = raw.features as Record<string, unknown>[] ?? [];
+    const quakes = features.slice(0, 10).map((f) => {
+      const props = f.properties as Record<string, unknown> ?? {};
+      const geo = f.geometry as Record<string, unknown> ?? {};
+      const coords = geo.coordinates as number[] ?? [];
+      return {
+        magnitude: props.mag as number ?? null,
+        place: props.place as string ?? null,
+        time: props.time as number ?? null,
+        url: props.url as string ?? null,
+        detail: props.detail as string ?? null,
+        tsunami: props.tsunami as number ?? 0,
+        alert: props.alert as string ?? null,
+        magType: props.magType as string ?? null,
+        latitude: coords[1] ?? null,
+        longitude: coords[0] ?? null,
+        depth: coords[2] ?? null,
+      };
+    });
+    const first = quakes.length > 0 ? quakes[0] : null;
+    return {
+      data: {
+        type: 'earthquake',
+        count: quakes.length,
+        earthquakes: quakes,
+        title: first ? `M ${first.magnitude} - ${first.place}` : null,
+        description: quakes.length > 0 ? quakes.map((q) => `M${q.magnitude} ${q.place}`).join('; ') : null,
+        magnitude: first ? first.magnitude : null,
+        date: first ? new Date(first.time ?? Date.now()).toISOString() : null,
+        provider: provider.name,
+      },
+      providerName: provider.name,
+    };
+  }
+
+  private async transformISS(
+    provider: ProviderAdapterConfig,
+    raw: Record<string, unknown>,
+  ): Promise<NormalizedResponseData> {
+    const pos = raw.iss_position as Record<string, string> ?? {};
+    const timestamp = raw.timestamp as number ?? Date.now();
+    return {
+      data: {
+        type: 'iss',
+        title: 'International Space Station',
+        description: `ISS at ${pos.latitude ?? '?'}° ${pos.longitude ?? '?'}° — overhead check: lat ${pos.latitude ?? '?'}, lon ${pos.longitude ?? '?'}`,
+        imageUrl: null,
+        date: new Date(timestamp * 1000).toISOString(),
+        magnitude: null,
+        latitude: parseFloat(pos.latitude ?? '0'),
+        longitude: parseFloat(pos.longitude ?? '0'),
+        provider: provider.name,
+      },
+      providerName: provider.name,
+    };
+  }
+
+  private async transformNASA(
+    provider: ProviderAdapterConfig,
+    raw: Record<string, unknown>,
+  ): Promise<NormalizedResponseData> {
+    // Handle both single APOD response and array response
+    const items = Array.isArray(raw) ? raw : [raw];
+    const item = items[0] as Record<string, unknown> ?? raw;
+    return {
+      data: {
+        type: 'apod',
+        title: item.title as string ?? null,
+        description: item.explanation as string ?? null,
+        imageUrl: item.hdurl as string ?? item.url as string ?? null,
+        date: item.date as string ?? null,
+        magnitude: null,
+        copyright: item.copyright as string ?? null,
+        mediaType: item.media_type as string ?? null,
+        provider: provider.name,
+      },
+      providerName: provider.name,
+    };
+  }
+
+  private async transformLaunch(
+    provider: ProviderAdapterConfig,
+    raw: Record<string, unknown>,
+  ): Promise<NormalizedResponseData> {
+    const launches = raw.results as Record<string, unknown>[] ?? [];
+    const launch = launches[0] ?? {};
+    const name = launch.name as string ?? null;
+    const net = launch.net as string ?? null;  // launch window
+    const status = launch.status as Record<string, unknown> ?? {};
+    return {
+      data: {
+        type: 'space',
+        title: name ?? null,
+        description: `Launch: ${name ?? 'Unknown'} at ${net ?? 'TBD'} — Status: ${(status.name as string) ?? 'Unknown'}`,
+        imageUrl: launch.image as string ?? null,
+        date: net ?? null,
+        magnitude: null,
+        provider: provider.name,
+      },
+      providerName: provider.name,
+    };
   }
 
   private detectType(slug: string, raw: Record<string, unknown>): UniversalScienceOutput['type'] {
