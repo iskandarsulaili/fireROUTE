@@ -301,6 +301,8 @@ export class TransportationAdapter extends BaseAdapter {
   readonly categorySlug = 'transportation';
 
   private readonly planner = new RoutePlanner();
+  private readonly responseCache = new Map<string, { data: NormalizedResponseData; timestamp: number }>();
+  private readonly CACHE_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours for AviationStack (500 req/mo budget ≈ 360 req/mo at 2h cache)
 
   constructor(logger: Logger = defaultLogger) {
     super(logger);
@@ -315,6 +317,16 @@ export class TransportationAdapter extends BaseAdapter {
     // Route based on which provider handled the request
     const providerName = _provider.name.toLowerCase();
     
+    if (providerName.includes('aviationstack')) {
+      const cacheKey = `aviationstack:flights`;
+      const cached = this.responseCache.get(cacheKey);
+      if (cached && Date.now() - cached.timestamp < this.CACHE_TTL_MS) {
+        return cached.data;
+      }
+      const result = await this.transformAviationStack(_provider, rawData);
+      this.responseCache.set(cacheKey, { data: result, timestamp: Date.now() });
+      return result;
+    }
     if (providerName.includes('opensky')) {
       return this.transformOpenSky(_provider, rawData);
     }
@@ -325,7 +337,9 @@ export class TransportationAdapter extends BaseAdapter {
       return this.transformOSRM(_provider, rawData);
     }
     if (providerName.includes('aviationstack')) {
-      return this.transformAviationStack(_provider, rawData);
+      // AviationStack fell through to RoutePlanner - cache the fallback too
+      const result = await this.transformLocalRoutePlanner(_provider, rawData);
+      return result;
     }
     
     // Default: RoutePlanner (local) - extract params from echo response
