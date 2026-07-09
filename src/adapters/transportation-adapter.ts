@@ -324,6 +324,9 @@ export class TransportationAdapter extends BaseAdapter {
     if (providerName.includes('osrm')) {
       return this.transformOSRM(_provider, rawData);
     }
+    if (providerName.includes('aviationstack')) {
+      return this.transformAviationStack(_provider, rawData);
+    }
     
     // Default: RoutePlanner (local) - extract params from echo response
     return this.transformLocalRoutePlanner(_provider, rawData);
@@ -486,6 +489,76 @@ export class TransportationAdapter extends BaseAdapter {
       transfers: 0,
       fromSummary: 'Origin',
       toSummary: 'Destination',
+      timestamp: new Date().toISOString(),
+      provider: _provider.name,
+    };
+    
+    return { data: journey, providerName: _provider.name };
+  }
+
+  private async transformAviationStack(
+    _provider: ProviderAdapterConfig,
+    rawData: Record<string, unknown>,
+  ): Promise<NormalizedResponseData> {
+    const flightData = rawData.data as Record<string, unknown>[] ?? [];
+    const legs: UniversalTransportLeg[] = [];
+    
+    for (const flight of flightData.slice(0, 50)) {
+      const dep = flight.departure as Record<string, unknown> ?? {};
+      const arr = flight.arrival as Record<string, unknown> ?? {};
+      const airline = flight.airline as Record<string, unknown> ?? {};
+      const flightInfo = flight.flight as Record<string, unknown> ?? {};
+      
+      const depIata = dep.iata as string ?? '';
+      const arrIata = arr.iata as string ?? '';
+      const depTime = dep.scheduled as string ?? null;
+      const arrTime = arr.scheduled as string ?? null;
+      const depDelay = dep.delay as number ?? null;
+      const arrDelay = arr.delay as number ?? null;
+      const flightStatus = flight.flight_status as string ?? 'unknown';
+      const depLat = dep.latitude as number ?? null;
+      const depLon = dep.longitude as number ?? null;
+      const arrLat = arr.latitude as number ?? null;
+      const arrLon = arr.longitude as number ?? null;
+      
+      if (!depIata || !arrIata) continue;
+      
+      const flightNum = `${airline.iata ?? ''}${flightInfo.number ?? ''}`;
+      
+      let status: UniversalTransportStatus = 'scheduled';
+      if (flightStatus === 'active') status = 'active';
+      else if (flightStatus === 'landed') status = 'arrived';
+      else if (flightStatus === 'cancelled') status = 'cancelled';
+      else if (flightStatus === 'delayed') status = 'delayed';
+      
+      legs.push({
+        mode: 'flight',
+        operator: airline.name as string ?? null,
+        routeName: flightNum || null,
+        fromName: depIata, fromCode: depIata, fromLat: depLat, fromLon: depLon, fromScheduledAt: depTime,
+        toName: arrIata, toCode: arrIata, toLat: arrLat, toLon: arrLon, toScheduledAt: arrTime,
+        durationMinutes: 0,
+        distanceKm: null,
+        status,
+        delayMinutes: (depDelay ?? arrDelay) as number | null,
+        details: `${flightNum} ${depIata}→${arrIata} (${flightStatus})`,
+      });
+    }
+    
+    const journey: UniversalTransportJourney = {
+      legs: legs.length > 0 ? legs : [{
+        mode: 'flight', operator: 'AviationStack',
+        routeName: null,
+        fromName: 'Unknown', fromCode: null, fromLat: null, fromLon: null, fromScheduledAt: null,
+        toName: 'Unknown', toCode: null, toLat: null, toLon: null, toScheduledAt: null,
+        durationMinutes: 0, distanceKm: null, status: 'unknown', delayMinutes: null,
+        details: 'No flight data available',
+      }],
+      totalDurationMinutes: 0,
+      totalDistanceKm: null,
+      transfers: 0,
+      fromSummary: 'AviationStack',
+      toSummary: 'AviationStack',
       timestamp: new Date().toISOString(),
       provider: _provider.name,
     };
