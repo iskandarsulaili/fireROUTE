@@ -311,7 +311,192 @@ export class TransportationAdapter extends BaseAdapter {
     response: UpstreamResponse,
   ): Promise<NormalizedResponseData> {
     const rawData = response.body as Record<string, unknown> ?? {};
-    // Extract request params from the echo response (they come back under 'params')
+    
+    // Route based on which provider handled the request
+    const providerName = _provider.name.toLowerCase();
+    
+    if (providerName.includes('opensky')) {
+      return this.transformOpenSky(_provider, rawData);
+    }
+    if (providerName.includes('tfl')) {
+      return this.transformTfL(_provider, rawData);
+    }
+    if (providerName.includes('osrm')) {
+      return this.transformOSRM(_provider, rawData);
+    }
+    
+    // Default: RoutePlanner (local) - extract params from echo response
+    return this.transformLocalRoutePlanner(_provider, rawData);
+  }
+
+  private async transformOpenSky(
+    _provider: ProviderAdapterConfig,
+    rawData: Record<string, unknown>,
+  ): Promise<NormalizedResponseData> {
+    const states = rawData.states as unknown[][] ?? [];
+    const flights: UniversalTransportLeg[] = [];
+    
+    for (const state of states.slice(0, 50)) {
+      // OpenSky state format: [icao24, callsign, origin_country, time_position, last_contact,
+      //                        longitude, latitude, baro_altitude, on_ground, velocity, heading, ...]
+      const callsign = (state[1] as string ?? '').trim();
+      const originCountry = state[2] as string ?? '';
+      const longitude = state[5] as number ?? 0;
+      const latitude = state[4] as number ?? 0;
+      const altitude = state[7] as number ?? 0;
+      const velocity = state[9] as number ?? 0;
+      const heading = state[10] as number ?? 0;
+      const onGround = state[8] as boolean ?? false;
+      
+      if (!callsign) continue;
+      
+      flights.push({
+        mode: 'flight',
+        operator: originCountry || null,
+        routeName: callsign,
+        fromName: 'Live position', fromCode: null,
+        fromLat: latitude, fromLon: longitude,
+        fromScheduledAt: null,
+        toName: 'In flight', toCode: null,
+        toLat: null, toLon: null,
+        toScheduledAt: null,
+        durationMinutes: 0,
+        distanceKm: null,
+        status: onGround ? 'active' : 'active',
+        delayMinutes: null,
+        details: `${callsign} at ${altitude.toFixed(0)}m ${velocity.toFixed(0)}m/s heading ${heading.toFixed(0)}°`,
+      });
+    }
+    
+    const journey: UniversalTransportJourney = {
+      legs: flights,
+      totalDurationMinutes: 0,
+      totalDistanceKm: null,
+      transfers: 0,
+      fromSummary: 'Live airspace',
+      toSummary: 'Live airspace',
+      timestamp: new Date().toISOString(),
+      provider: _provider.name,
+    };
+    
+    return { data: journey, providerName: _provider.name };
+  }
+
+  private async transformTfL(
+    _provider: ProviderAdapterConfig,
+    rawData: Record<string, unknown>,
+  ): Promise<NormalizedResponseData> {
+    // TfL journey planner response
+    const journeys = (rawData.journeys ?? [rawData]) as Record<string, unknown>[];
+    const legs: UniversalTransportLeg[] = [];
+    
+    for (const journey of journeys.slice(0, 5)) {
+      const legs_arr = (journey.legs ?? []) as Record<string, unknown>[];
+      for (const leg of legs_arr) {
+        const mode = (leg.mode as Record<string, unknown> ?? {}).name as string ?? 'unknown';
+        const departure = leg.departureTime as string ?? null;
+        const arrival = leg.arrivalTime as string ?? null;
+        const duration = leg.duration as number ?? 0;
+        const origin = (leg.origin as Record<string, unknown> ?? {}).commonName as string ?? 'Unknown';
+        const destination = (leg.destination as Record<string, unknown> ?? {}).commonName as string ?? 'Unknown';
+        const originLat = (leg.origin as Record<string, unknown> ?? {}).lat as number ?? null;
+        const originLon = (leg.origin as Record<string, unknown> ?? {}).lon as number ?? null;
+        const destLat = (leg.destination as Record<string, unknown> ?? {}).lat as number ?? null;
+        const destLon = (leg.destination as Record<string, unknown> ?? {}).lon as number ?? null;
+        
+        const transportMode: UniversalTransportMode = 
+          (mode === 'tube' || mode === 'train' || mode === 'overground' || mode === 'dlr' || mode === 'tflrail') ? 'train'
+          : mode === 'bus' ? 'bus'
+          : mode === 'river-bus' || mode === 'river-tour' ? 'ferry'
+          : mode === 'walking' ? 'walking'
+          : 'public_transport';
+        
+        legs.push({
+          mode: transportMode,
+          operator: 'TfL',
+          routeName: (leg.line as Record<string, unknown> ?? {}).name as string ?? null,
+          fromName: origin, fromCode: null, fromLat: originLat, fromLon: originLon, fromScheduledAt: departure,
+          toName: destination, toCode: null, toLat: destLat, toLon: destLon, toScheduledAt: arrival,
+          durationMinutes: Math.ceil(duration / 60),
+          distanceKm: null,
+          status: 'scheduled',
+          delayMinutes: null,
+          details: `${mode} from ${origin} to ${destination}`,
+        });
+      }
+    }
+    
+    const journey: UniversalTransportJourney = {
+      legs: legs.length > 0 ? legs : [{
+        mode: 'public_transport', operator: 'TfL',
+        routeName: null,
+        fromName: 'London', fromCode: null, fromLat: null, fromLon: null, fromScheduledAt: null,
+        toName: 'London', toCode: null, toLat: null, toLon: null, toScheduledAt: null,
+        durationMinutes: 0, distanceKm: null, status: 'unknown', delayMinutes: null,
+        details: 'TfL journey data',
+      }],
+      totalDurationMinutes: legs.reduce((s, l) => s + l.durationMinutes, 0),
+      totalDistanceKm: null,
+      transfers: Math.max(0, legs.length - 1),
+      fromSummary: 'London',
+      toSummary: 'London',
+      timestamp: new Date().toISOString(),
+      provider: _provider.name,
+    };
+    
+    return { data: journey, providerName: _provider.name };
+  }
+
+  private async transformOSRM(
+    _provider: ProviderAdapterConfig,
+    rawData: Record<string, unknown>,
+  ): Promise<NormalizedResponseData> {
+    const routes = rawData.routes as Record<string, unknown>[] ?? [];
+    const legs: UniversalTransportLeg[] = [];
+    
+    for (const route of routes) {
+      const distanceKm = (route.distance as number ?? 0) / 1000;
+      const durationMin = (route.duration as number ?? 0) / 60;
+      
+      legs.push({
+        mode: 'driving',
+        operator: 'OSRM',
+        routeName: null,
+        fromName: 'Origin', fromCode: null, fromLat: null, fromLon: null, fromScheduledAt: null,
+        toName: 'Destination', toCode: null, toLat: null, toLon: null, toScheduledAt: null,
+        durationMinutes: Math.ceil(durationMin),
+        distanceKm: Math.round(distanceKm * 10) / 10,
+        status: 'scheduled',
+        delayMinutes: null,
+        details: `OSRM route: ${distanceKm.toFixed(1)} km, ${Math.ceil(durationMin)} min`,
+      });
+    }
+    
+    const journey: UniversalTransportJourney = {
+      legs: legs.length > 0 ? legs : [{
+        mode: 'driving', operator: 'OSRM',
+        routeName: null,
+        fromName: 'Origin', fromCode: null, fromLat: null, fromLon: null, fromScheduledAt: null,
+        toName: 'Destination', toCode: null, toLat: null, toLon: null, toScheduledAt: null,
+        durationMinutes: 0, distanceKm: 0, status: 'unknown', delayMinutes: null,
+        details: 'No route found',
+      }],
+      totalDurationMinutes: legs.reduce((s, l) => s + l.durationMinutes, 0),
+      totalDistanceKm: legs.reduce((s, l) => s + (l.distanceKm ?? 0), 0),
+      transfers: 0,
+      fromSummary: 'Origin',
+      toSummary: 'Destination',
+      timestamp: new Date().toISOString(),
+      provider: _provider.name,
+    };
+    
+    return { data: journey, providerName: _provider.name };
+  }
+
+  private async transformLocalRoutePlanner(
+    _provider: ProviderAdapterConfig,
+    rawData: Record<string, unknown>,
+  ): Promise<NormalizedResponseData> {
     const echoParams = (rawData.params ?? rawData) as Record<string, unknown>;
     const fromLat = parseFloat(echoParams.originLat as string) ?? parseFloat(echoParams.fromLat as string) ?? 0;
     const fromLon = parseFloat(echoParams.originLon as string) ?? parseFloat(echoParams.fromLon as string) ?? 0;
@@ -323,13 +508,9 @@ export class TransportationAdapter extends BaseAdapter {
     const toCode = (echoParams.destCode as string) ?? null;
     const date = (echoParams.date as string) ?? undefined;
 
-    // Determine available transport modes from provider metadata
     const availableModes = this.parseAvailableModes(_provider, echoParams);
-
-    // Plan the multi-leg route
     const journey = this.planner.planRoute({
-      fromLat: fromLat ?? 0, fromLon: fromLon ?? 0,
-      toLat: toLat ?? 0, toLon: toLon ?? 0,
+      fromLat, fromLon, toLat, toLon,
       fromName, toName, fromCode, toCode,
       date,
       provider: _provider.name,
