@@ -109,8 +109,7 @@ class RoutePlanner {
     else if (remainingDistanceKm <= 10) {
       if (hasBus || hasPublic) {
         legs.push(this.createTransportLeg('bus', fromLat, fromLon, toLat, toLon, fromName, toName, fromCode, toCode, remainingDistanceKm, provider));
-        // Short walk to/from stops
-        remainingDistanceKm = 0.5;
+        remainingDistanceKm = 0.5; // walk to stop
       } else if (canWalk) {
         legs.push(this.createWalkingLeg(fromLat, fromLon, toLat, toLon, fromName, toName, remainingDistanceKm));
         remainingDistanceKm = 0;
@@ -119,30 +118,33 @@ class RoutePlanner {
         remainingDistanceKm = 0;
       }
     }
-    // Medium distance (10-200 km): train or bus
-    else if (remainingDistanceKm <= 200) {
+    // Medium distance (10-800 km): train or bus
+    else if (remainingDistanceKm <= 800) {
       if (hasTrain) {
         legs.push(this.createTransportLeg('train', fromLat, fromLon, toLat, toLon, fromName, toName, fromCode, toCode, remainingDistanceKm, provider));
-        remainingDistanceKm = 1; // walk to station
+        remainingDistanceKm = 2; // walk to/from stations
       } else if (hasBus) {
         legs.push(this.createTransportLeg('bus', fromLat, fromLon, toLat, toLon, fromName, toName, fromCode, toCode, remainingDistanceKm, provider));
-        remainingDistanceKm = 0.5;
+        remainingDistanceKm = 1;
       } else if (hasFerry && this.isWaterRoute(fromLat, fromLon, toLat, toLon)) {
         legs.push(this.createTransportLeg('ferry', fromLat, fromLon, toLat, toLon, fromName, toName, fromCode, toCode, remainingDistanceKm, provider));
-        remainingDistanceKm = 1;
+        remainingDistanceKm = 2;
       } else if (canDrive) {
         legs.push(this.createTransportLeg('driving', fromLat, fromLon, toLat, toLon, fromName, toName, fromCode, toCode, remainingDistanceKm, provider));
         remainingDistanceKm = 0;
+      } else if (hasFlight) {
+        legs.push(this.createTransportLeg('flight', fromLat, fromLon, toLat, toLon, fromName, toName, fromCode, toCode, remainingDistanceKm, provider));
+        remainingDistanceKm = 15; // shorter airport transfer
       } else {
         legs.push(this.createTransportLeg('bus', fromLat, fromLon, toLat, toLon, fromName, toName, fromCode, toCode, remainingDistanceKm, provider));
-        remainingDistanceKm = 0.5;
+        remainingDistanceKm = 1;
       }
     }
-    // Long distance (200+ km): flight or train
+    // Long distance (800+ km): flight or train
     else {
       if (hasFlight) {
         legs.push(this.createTransportLeg('flight', fromLat, fromLon, toLat, toLon, fromName, toName, fromCode, toCode, remainingDistanceKm, provider));
-        remainingDistanceKm = 20; // drive/walk to/from airports (combined)
+        remainingDistanceKm = 15; // shorter airport transfer (bus/shuttle, not walking)
       } else if (hasTrain) {
         legs.push(this.createTransportLeg('train', fromLat, fromLon, toLat, toLon, fromName, toName, fromCode, toCode, remainingDistanceKm, provider));
         remainingDistanceKm = 2;
@@ -151,12 +153,29 @@ class RoutePlanner {
         remainingDistanceKm = 2;
       } else {
         legs.push(this.createTransportLeg('flight', fromLat, fromLon, toLat, toLon, fromName, toName, fromCode, toCode, remainingDistanceKm, provider));
-        remainingDistanceKm = 20;
+        remainingDistanceKm = 15;
       }
     }
 
-    // Add walking legs for remaining distance (to/from stations/airports)
-    if (remainingDistanceKm > 0 && canWalk) {
+    // Add transfer legs for remaining distance (bus/shuttle, not long walking)
+    if (remainingDistanceKm > 0 && remainingDistanceKm <= 2 && canWalk) {
+      legs.push(this.createWalkingLeg(
+        legs[legs.length - 1]?.toLat ?? fromLat,
+        legs[legs.length - 1]?.toLon ?? fromLon,
+        toLat, toLon,
+        'Station', toName,
+        remainingDistanceKm,
+      ));
+    } else if (remainingDistanceKm > 2 && (hasBus || hasPublic)) {
+      legs.push(this.createTransportLeg('bus',
+        legs[legs.length - 1]?.toLat ?? fromLat,
+        legs[legs.length - 1]?.toLon ?? fromLon,
+        toLat, toLon,
+        'Airport/Station', toName,
+        null, null,
+        remainingDistanceKm, provider,
+      ));
+    } else if (remainingDistanceKm > 0 && canWalk) {
       legs.push(this.createWalkingLeg(
         legs[legs.length - 1]?.toLat ?? fromLat,
         legs[legs.length - 1]?.toLon ?? fromLon,
@@ -292,20 +311,20 @@ export class TransportationAdapter extends BaseAdapter {
     response: UpstreamResponse,
   ): Promise<NormalizedResponseData> {
     const rawData = response.body as Record<string, unknown> ?? {};
-    // Extract request params from the upstream URL path or the response body
-    // The execute flow passes params via the upstream URL query string
-    const fromLat = (rawData.originLat as number) ?? (rawData.fromLat as number) ?? 0;
-    const fromLon = (rawData.originLon as number) ?? (rawData.fromLon as number) ?? 0;
-    const toLat = (rawData.destLat as number) ?? (rawData.toLat as number) ?? 0;
-    const toLon = (rawData.destLon as number) ?? (rawData.toLon as number) ?? 0;
-    const fromName = (rawData.originName as string) ?? (rawData.fromName as string) ?? 'Origin';
-    const toName = (rawData.destName as string) ?? (rawData.toName as string) ?? 'Destination';
-    const fromCode = (rawData.originCode as string) ?? null;
-    const toCode = (rawData.destCode as string) ?? null;
-    const date = (rawData.date as string) ?? undefined;
+    // Extract request params from the echo response (they come back under 'params')
+    const echoParams = (rawData.params ?? rawData) as Record<string, unknown>;
+    const fromLat = parseFloat(echoParams.originLat as string) ?? parseFloat(echoParams.fromLat as string) ?? 0;
+    const fromLon = parseFloat(echoParams.originLon as string) ?? parseFloat(echoParams.fromLon as string) ?? 0;
+    const toLat = parseFloat(echoParams.destLat as string) ?? parseFloat(echoParams.toLat as string) ?? 0;
+    const toLon = parseFloat(echoParams.destLon as string) ?? parseFloat(echoParams.toLon as string) ?? 0;
+    const fromName = (echoParams.originName as string) ?? (echoParams.fromName as string) ?? 'Origin';
+    const toName = (echoParams.destName as string) ?? (echoParams.toName as string) ?? 'Destination';
+    const fromCode = (echoParams.originCode as string) ?? null;
+    const toCode = (echoParams.destCode as string) ?? null;
+    const date = (echoParams.date as string) ?? undefined;
 
     // Determine available transport modes from provider metadata
-    const availableModes = this.parseAvailableModes(_provider, rawData);
+    const availableModes = this.parseAvailableModes(_provider, echoParams);
 
     // Plan the multi-leg route
     const journey = this.planner.planRoute({
