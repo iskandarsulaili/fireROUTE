@@ -303,9 +303,42 @@ export class TransportationAdapter extends BaseAdapter {
   private readonly planner = new RoutePlanner();
   private readonly responseCache = new Map<string, { data: NormalizedResponseData; timestamp: number }>();
   private readonly CACHE_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours for AviationStack (500 req/mo budget ≈ 360 req/mo at 2h cache)
+  private readonly CACHE_FILE = process.cwd() + '/.cache/aviationstack.json';
 
   constructor(logger: Logger = defaultLogger) {
     super(logger);
+    this.loadCacheFromDisk();
+  }
+
+  private loadCacheFromDisk(): void {
+    try {
+      const fs = require('fs');
+      if (fs.existsSync(this.CACHE_FILE)) {
+        const raw = fs.readFileSync(this.CACHE_FILE, 'utf-8');
+        const saved = JSON.parse(raw);
+        if (saved && saved.timestamp && Date.now() - saved.timestamp < this.CACHE_TTL_MS) {
+          this.responseCache.set('aviationstack:flights', {
+            data: saved.data,
+            timestamp: saved.timestamp,
+          });
+        }
+      }
+    } catch (e) { /* silent */ }
+  }
+
+  private saveCacheToDisk(): void {
+    try {
+      const cached = this.responseCache.get('aviationstack:flights');
+      if (cached) {
+        const fs = require('fs');
+        const dir = require('path').dirname(this.CACHE_FILE);
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(this.CACHE_FILE, JSON.stringify({
+          data: cached.data,
+          timestamp: cached.timestamp,
+        }));
+      }
+    } catch (e) { /* silent */ }
   }
 
   async transformResponse(
@@ -325,6 +358,7 @@ export class TransportationAdapter extends BaseAdapter {
       }
       const result = await this.transformAviationStack(_provider, rawData);
       this.responseCache.set(cacheKey, { data: result, timestamp: Date.now() });
+      this.saveCacheToDisk();
       return result;
     }
     if (providerName.includes('opensky')) {
