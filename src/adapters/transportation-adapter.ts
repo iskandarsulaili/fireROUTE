@@ -329,7 +329,14 @@ export class TransportationAdapter extends BaseAdapter {
     }
     
     // Default: RoutePlanner (local) - extract params from echo response
-    return this.transformLocalRoutePlanner(_provider, rawData);
+    try {
+      return await this.transformLocalRoutePlanner(_provider, rawData);
+    } catch (e) {
+      return {
+        data: { legs: [], totalDurationMinutes: 0, totalDistanceKm: null, transfers: 0, fromSummary: 'Error', toSummary: 'Error', timestamp: new Date().toISOString(), provider: _provider.name },
+        providerName: _provider.name,
+      };
+    }
   }
 
   private async transformOpenSky(
