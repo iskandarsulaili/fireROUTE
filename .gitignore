@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .env
+.env.providers
 *.log
 *.db
 *.sqlite
