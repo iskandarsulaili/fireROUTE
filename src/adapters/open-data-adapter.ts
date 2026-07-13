@@ -74,6 +74,10 @@ export class OpenDataAdapter extends BaseAdapter {
     }
 
     // Generic passthrough for unknown open-data providers
+    this.logger.warn(
+      { providerName: provider.name },
+      'OpenDataAdapter: no specific transform for provider, using generic passthrough',
+    );
     return {
       data: {
         type: 'raw',
@@ -115,12 +119,66 @@ export class OpenDataAdapter extends BaseAdapter {
   /**
    * Transform Wikipedia REST API response.
    * Handles: page content, search results, random pages.
+   * Also handles Action API format: { query: { search: [...] } } and { parse: { title, text } }
    */
   private transformWikipedia(
     raw: Record<string, unknown>,
     provider: ProviderAdapterConfig,
   ): { data: UniversalOpenDataOutput; providerName: string } {
-    // Search results: { pages: [{ id, key, title, excerpt, description, thumbnail }] }
+    // Action API search: { query: { search: [{ title, snippet, pageid }] } }
+    if (raw.query && typeof raw.query === 'object') {
+      const query = raw.query as Record<string, unknown>;
+      const search = query.search as Record<string, unknown>[] | undefined;
+      if (search && Array.isArray(search) && search.length > 0) {
+        const results = search.map((item) => ({
+          type: 'search_result' as const,
+          title: (item.title as string) ?? null,
+          text: (item.snippet as string) ?? null,
+          source: provider.name,
+          sourceUrl: item.title
+            ? `https://en.wikipedia.org/wiki/${encodeURIComponent(item.title as string)}`
+            : null,
+          tags: this.inferTags(item.title as string ?? '', item.snippet as string ?? ''),
+          region: this.inferRegion(item.title as string ?? '', item.snippet as string ?? ''),
+          culture: this.inferCulture(item.title as string ?? '', item.snippet as string ?? ''),
+          language: 'en',
+          raw: item,
+        }));
+        return {
+          data: results.length === 1 && results[0]
+            ? (results[0] as unknown as UniversalOpenDataOutput)
+            : multiResult('search_results', results, provider.name, raw),
+          providerName: provider.name,
+        };
+      }
+    }
+
+    // Action API parse: { parse: { title, pageid, text: { ... } } }
+    if (raw.parse && typeof raw.parse === 'object') {
+      const parse = raw.parse as Record<string, unknown>;
+      const title = parse.title as string ?? null;
+      const text = parse.text as Record<string, unknown> | undefined;
+      const textContent = text?.['*'] as string ?? null;
+      return {
+        data: {
+          type: 'page',
+          title,
+          text: textContent ? textContent.substring(0, 2000).replace(/<[^>]+>/g, '') : null,
+          source: provider.name,
+          sourceUrl: title
+            ? `https://en.wikipedia.org/wiki/${encodeURIComponent(title)}`
+            : null,
+          tags: this.inferTags(title ?? '', textContent ?? ''),
+          region: this.inferRegion(title ?? '', textContent ?? ''),
+          culture: this.inferCulture(title ?? '', textContent ?? ''),
+          language: 'en',
+          raw: parse,
+        } as UniversalOpenDataOutput,
+        providerName: provider.name,
+      };
+    }
+
+    // REST API search results: { pages: [{ id, key, title, excerpt, description }] }
     if (raw.pages && Array.isArray(raw.pages)) {
       const pages = raw.pages as Record<string, unknown>[];
       const results = pages.map((page) => ({
