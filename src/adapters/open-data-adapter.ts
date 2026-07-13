@@ -3,6 +3,8 @@ import type { Logger } from './base-adapter.js';
 import type {
   ProviderAdapterConfig,
   NormalizedResponseData,
+  NormalizedUpstreamRequest,
+  InternalExecuteRequest,
   UpstreamResponse,
   MCPToolDefinition,
 } from '../types/adapter.js';
@@ -87,6 +89,26 @@ export class OpenDataAdapter extends BaseAdapter {
       } as UniversalOpenDataOutput,
       providerName: provider.name,
     };
+  }
+
+  /**
+   * Override normalizeRequest to inject provider-specific auth headers
+   * that don't fit the standard auth patterns (e.g., GENESIS username/password).
+   */
+  async normalizeRequest(
+    provider: ProviderAdapterConfig,
+    request: InternalExecuteRequest,
+  ): Promise<NormalizedUpstreamRequest> {
+    const normalized = await super.normalizeRequest(provider, request);
+
+    // GENESIS: inject username/password headers for guest access
+    const name = provider.name.toLowerCase();
+    if (name === 'genesis') {
+      normalized.headers['username'] = 'GAST';
+      normalized.headers['password'] = 'GAST';
+    }
+
+    return normalized;
   }
 
   /**
@@ -218,6 +240,8 @@ export class OpenDataAdapter extends BaseAdapter {
             source: provider.name,
             sourceUrl: (item.value as string) ?? null,
             tags: [],
+            region: this.inferRegion((itemLabel.value as string) ?? '', ''),
+            culture: this.inferCulture((itemLabel.value as string) ?? '', ''),
             language: 'en',
             raw: b,
           };
@@ -400,9 +424,9 @@ export class OpenDataAdapter extends BaseAdapter {
         return regex.test(titleOnly);
       });
 
-    if (match(['malay', 'melayu', 'wayang', 'batik', 'gamelan', 'keris', 'nusantara', 'pantun', 'silat', 'javanese', 'sundanese', 'dayak', 'iban', 'kadazan', 'ramayana', 'mahabharata'])) return 'southeast_asian';
+    if (match(['malay', 'melayu', 'wayang', 'batik', 'gamelan', 'keris', 'nusantara', 'pantun', 'silat', 'javanese', 'sundanese', 'dayak', 'iban', 'kadazan'])) return 'southeast_asian';
     if (match(['shinto', 'zen', 'tao', 'confucius', 'samurai', 'ninja', 'geisha', 'anime', 'manga', 'dynasty', 'feng shui', 'yin yang'])) return 'eastern';
-    if (match(['hindu', 'veda', 'karma', 'yoga', 'ayurveda', 'sanskrit', 'guru', 'bollywood', 'sari'])) return 'south_asian';
+    if (match(['hindu', 'veda', 'karma', 'yoga', 'ayurveda', 'sanskrit', 'guru', 'bollywood', 'sari', 'ramayana', 'mahabharata'])) return 'south_asian';
     if (match(['greek', 'roman', 'norse', 'celtic', 'slavic', 'viking', 'medieval', 'renaissance', 'enlightenment', 'baroque', 'shakespeare', 'socrates', 'plato', 'aristotle'])) return 'western';
     if (match(['islam', 'quran', 'arabic', 'caliph', 'mosque', 'minaret', 'sultan', 'bedouin', 'berber', 'ottoman', 'persian', 'sufi', 'hajj'])) return 'middle_eastern';
     if (match(['yoruba', 'zulu', 'masai', 'ashanti', 'bantu', 'swahili', 'pharaoh', 'pyramid', 'hieroglyph'])) return 'african';
