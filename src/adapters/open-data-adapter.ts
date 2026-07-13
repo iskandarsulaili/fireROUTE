@@ -101,11 +101,12 @@ export class OpenDataAdapter extends BaseAdapter {
   ): Promise<NormalizedUpstreamRequest> {
     const normalized = await super.normalizeRequest(provider, request);
 
-    // GENESIS: inject username/password headers for guest access
+    // GENESIS: inject username/password headers from authConfig
     const name = provider.name.toLowerCase();
     if (name === 'genesis') {
-      normalized.headers['username'] = 'GAST';
-      normalized.headers['password'] = 'GAST';
+      const config = provider.authConfig as Record<string, string> | null;
+      normalized.headers['username'] = config?.['username'] ?? 'GAST';
+      normalized.headers['password'] = config?.['password'] ?? 'GAST';
     }
 
     return normalized;
