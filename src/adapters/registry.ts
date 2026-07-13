@@ -11,6 +11,7 @@ import { EnvironmentAdapter } from './environment-adapter.js';
 import { MusicAdapter } from './music-adapter.js';
 import { EntertainmentAdapter } from './entertainment-adapter.js';
 import { TransportationAdapter } from './transportation-adapter.js';
+import { OpenDataAdapter } from './open-data-adapter.js';
 import type { Logger } from './base-adapter.js';
 
 /**
@@ -33,6 +34,7 @@ class AdapterRegistry {
     this.register(new MusicAdapter(logger));
     this.register(new EntertainmentAdapter(logger));
     this.register(new TransportationAdapter(logger));
+    this.register(new OpenDataAdapter(logger));
   }
 
   /** Register a category adapter. */

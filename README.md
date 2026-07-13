@@ -61,11 +61,11 @@ Your App → POST /v1/execute { category: "weather", path: "/current.json" }
 
 ### The Result
 
-✅ **Resilience by default** — Your app survives provider outages  
-✅ **No more vendor lock-in** — Add, remove, or swap providers without code changes  
-✅ **Self-healing infrastructure** — Circuit breakers and canary probes manage health automatically  
-✅ **Full observability** — Every request logs its routing path, provider decisions, and latency  
-✅ **MCP-Ready** — Each category maps to an MCP tool definition for AI/agent integration  
+✅ **Resilience by default** — Your app survives provider outages
+✅ **No more vendor lock-in** — Add, remove, or swap providers without code changes
+✅ **Self-healing infrastructure** — Circuit breakers and canary probes manage health automatically
+✅ **Full observability** — Every request logs its routing path, provider decisions, and latency
+✅ **MCP-Ready** — Each category maps to an MCP tool definition for AI/agent integration
 
 ---
 
@@ -175,7 +175,7 @@ npm run test:watch  # Watch mode
 | Production Hardening | 🔄 After 100 stars |
 | Documentation Expansion | 🔄 After 100 stars |
 
-> **⭐ Star this repository to accelerate development!**  
+> **⭐ Star this repository to accelerate development!**
 > Every star brings us closer to resuming active development. At **100 stars**, we'll kick off the next phase: additional category adapters, production hardening, and expanded documentation.
 
 ---

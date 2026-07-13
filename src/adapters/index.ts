@@ -10,4 +10,5 @@ export { DictionaryAdapter } from './dictionary-adapter.js';
 export { EnvironmentAdapter } from './environment-adapter.js';
 export { MusicAdapter } from './music-adapter.js';
 export { EntertainmentAdapter } from './entertainment-adapter.js';
+export { OpenDataAdapter } from './open-data-adapter.js';
 export { adapterRegistry } from './registry.js';
