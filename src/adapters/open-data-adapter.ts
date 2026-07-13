@@ -25,6 +25,10 @@ interface UniversalOpenDataOutput {
   sourceUrl: string | null;
   /** Category tags (e.g., ["history", "science", "mythology"]) */
   tags: string[];
+  /** Geographic/cultural region (e.g., "global", "asia", "europe", "americas", "africa", "oceania", "middle_east", "southeast_asia") */
+  region: string;
+  /** Cultural origin (e.g., "western", "eastern", "southeast_asian", "middle_eastern", "latin", "african", "indigenous", "global") */
+  culture: string;
   /** Language code */
   language: string | null;
   /** Raw response preserved for advanced use */
@@ -40,7 +44,7 @@ function multiResult(
   source: string,
   raw: unknown,
 ): UniversalOpenDataOutput {
-  return { type, title: null, text: null, source, sourceUrl: null, tags: [], language: 'en', raw, results };
+  return { type, title: null, text: null, source, sourceUrl: null, tags: [], region: 'global', culture: 'global', language: 'en', raw, results };
 }
 
 export class OpenDataAdapter extends BaseAdapter {
@@ -76,6 +80,8 @@ export class OpenDataAdapter extends BaseAdapter {
         source: provider.name,
         sourceUrl: null,
         tags: [],
+        region: 'global',
+        culture: 'global',
         language: null,
         raw,
       } as UniversalOpenDataOutput,
@@ -103,6 +109,8 @@ export class OpenDataAdapter extends BaseAdapter {
           ? `https://en.wikipedia.org/wiki/${encodeURIComponent(page.key as string)}`
           : null,
         tags: this.inferTags(page.title as string ?? '', page.excerpt as string ?? ''),
+        region: this.inferRegion(page.title as string ?? '', page.excerpt as string ?? ''),
+        culture: this.inferCulture(page.title as string ?? '', page.excerpt as string ?? ''),
         language: 'en',
         raw: page,
       }));
@@ -128,6 +136,8 @@ export class OpenDataAdapter extends BaseAdapter {
             ? `https://en.wikipedia.org/wiki/${encodeURIComponent(raw.key as string)}`
             : null,
           tags: this.inferTags(title ?? '', source ?? ''),
+          region: this.inferRegion(title ?? '', source ?? ''),
+          culture: this.inferCulture(title ?? '', source ?? ''),
           language: 'en',
           raw,
         } as UniversalOpenDataOutput,
@@ -144,6 +154,8 @@ export class OpenDataAdapter extends BaseAdapter {
         source: provider.name,
         sourceUrl: null,
         tags: [],
+        region: 'global',
+        culture: 'global',
         language: 'en',
         raw,
       } as UniversalOpenDataOutput,
@@ -180,6 +192,8 @@ export class OpenDataAdapter extends BaseAdapter {
             source: provider.name,
             sourceUrl: `https://www.wikidata.org/wiki/${firstId}`,
             tags: [],
+            region: 'global',
+            culture: 'global',
             language: 'en',
             raw: entity,
           } as UniversalOpenDataOutput,
@@ -225,6 +239,8 @@ export class OpenDataAdapter extends BaseAdapter {
         source: provider.name,
         sourceUrl: null,
         tags: [],
+        region: 'global',
+        culture: 'global',
         language: 'en',
         raw,
       } as UniversalOpenDataOutput,
@@ -262,6 +278,8 @@ export class OpenDataAdapter extends BaseAdapter {
                 ? ((page.imageinfo as Record<string, unknown>[])[0]?.descriptionurl as string) ?? null
                 : null,
               tags: [],
+              region: 'global',
+              culture: 'global',
               language: 'en',
               raw: page,
             } as UniversalOpenDataOutput,
@@ -279,6 +297,8 @@ export class OpenDataAdapter extends BaseAdapter {
         source: provider.name,
         sourceUrl: null,
         tags: [],
+        region: 'global',
+        culture: 'global',
         language: 'en',
         raw,
       } as UniversalOpenDataOutput,
@@ -330,6 +350,68 @@ export class OpenDataAdapter extends BaseAdapter {
     return tags;
   }
 
+  /**
+   * Infer geographic region from title and text content.
+   * Returns a region tag that PAW can use for contextual filtering.
+   */
+  private inferRegion(title: string, _text: string): string {
+    const titleOnly = title.toLowerCase();
+
+    const match = (patterns: string[]): boolean =>
+      patterns.some(p => {
+        const regex = new RegExp(`\\b${p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+        return regex.test(titleOnly);
+      });
+
+    if (match(['malaysia', 'kuala lumpur', 'putrajaya', 'borneo', 'sabah', 'sarawak'])) return 'southeast_asia';
+    if (match(['indonesia', 'jakarta', 'bali', 'java', 'sumatra', 'sulawesi', 'nusantara'])) return 'southeast_asia';
+    if (match(['philippines', 'manila', 'thailand', 'bangkok', 'vietnam', 'hanoi', 'cambodia', 'phnom penh', 'laos', 'myanmar', 'yangon', 'singapore', 'brunei', 'timor leste', 'asean'])) return 'southeast_asia';
+
+    if (match(['japan', 'tokyo', 'china', 'beijing', 'shanghai', 'korea', 'seoul', 'taiwan', 'taipei', 'hong kong'])) return 'east_asia';
+    if (match(['india', 'mumbai', 'delhi', 'pakistan', 'bangladesh', 'sri lanka', 'nepal', 'himalayas', 'ganges'])) return 'south_asia';
+
+    if (match(['france', 'paris', 'germany', 'berlin', 'italy', 'rome', 'spain', 'madrid', 'united kingdom', 'london', 'england', 'britain', 'europe', 'scandinavia', 'nordic', 'mediterranean'])) return 'europe';
+
+    if (match(['egypt', 'cairo', 'nigeria', 'lagos', 'kenya', 'nairobi', 'south africa', 'ghana', 'ethiopia', 'sahara desert', 'nile river', 'africa'])) return 'africa';
+
+    if (match(['united states', 'usa', 'america', 'new york', 'washington', 'california', 'canada', 'ottawa', 'mexico', 'mexico city', 'brazil', 'brasilia', 'argentina', 'amazon rainforest', 'andes'])) return 'americas';
+
+    if (match(['australia', 'sydney', 'melbourne', 'new zealand', 'auckland', 'pacific ocean', 'oceania', 'polynesia', 'micronesia', 'melanesia'])) return 'oceania';
+
+    if (match(['middle east', 'iran', 'iraq', 'saudi arabia', 'dubai', 'turkey', 'ankara', 'israel', 'jerusalem', 'palestine', 'syria', 'jordan', 'lebanon', 'arabia'])) return 'middle_east';
+
+    if (match(['russia', 'moscow', 'siberia', 'ukraine', 'kyiv', 'kazakhstan', 'central asia'])) return 'central_asia';
+
+    if (match(['arctic', 'antarctic', 'greenland', 'iceland', 'north pole', 'south pole', 'tundra'])) return 'polar';
+
+    return 'global';
+  }
+
+  /**
+   * Infer cultural origin from title and text content.
+   * Helps PAW match references to player cultural context.
+   */
+  private inferCulture(title: string, _text: string): string {
+    const titleOnly = title.toLowerCase();
+
+    const match = (patterns: string[]): boolean =>
+      patterns.some(p => {
+        const regex = new RegExp(`\\b${p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+        return regex.test(titleOnly);
+      });
+
+    if (match(['malay', 'melayu', 'wayang', 'batik', 'gamelan', 'keris', 'nusantara', 'pantun', 'silat', 'javanese', 'sundanese', 'dayak', 'iban', 'kadazan', 'ramayana', 'mahabharata'])) return 'southeast_asian';
+    if (match(['shinto', 'zen', 'tao', 'confucius', 'samurai', 'ninja', 'geisha', 'anime', 'manga', 'dynasty', 'feng shui', 'yin yang'])) return 'eastern';
+    if (match(['hindu', 'veda', 'karma', 'yoga', 'ayurveda', 'sanskrit', 'guru', 'bollywood', 'sari'])) return 'south_asian';
+    if (match(['greek', 'roman', 'norse', 'celtic', 'slavic', 'viking', 'medieval', 'renaissance', 'enlightenment', 'baroque', 'shakespeare', 'socrates', 'plato', 'aristotle'])) return 'western';
+    if (match(['islam', 'quran', 'arabic', 'caliph', 'mosque', 'minaret', 'sultan', 'bedouin', 'berber', 'ottoman', 'persian', 'sufi', 'hajj'])) return 'middle_eastern';
+    if (match(['yoruba', 'zulu', 'masai', 'ashanti', 'bantu', 'swahili', 'pharaoh', 'pyramid', 'hieroglyph'])) return 'african';
+    if (match(['aztec', 'maya', 'inca', 'andean', 'amazon', 'indigenous', 'shaman', 'totem', 'pueblo', 'cherokee', 'navajo'])) return 'indigenous';
+    if (match(['aboriginal', 'maori', 'pacific', 'polynesian', 'haka', 'dreamtime', 'didgeridoo', 'tiki', 'moai'])) return 'pacific';
+
+    return 'global';
+  }
+
   private extractLabel(entity: Record<string, unknown>): string | null {
     const labels = entity.labels as Record<string, Record<string, unknown>> | undefined;
     if (labels?.en) return labels.en.value as string ?? null;
@@ -362,6 +444,8 @@ export class OpenDataAdapter extends BaseAdapter {
         source: provider.name,
         sourceUrl: null,
         tags: [],
+        region: 'global',
+        culture: 'global',
         language: 'en',
         raw,
       } as UniversalOpenDataOutput,
