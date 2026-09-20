@@ -5,6 +5,7 @@ import type {
   NormalizedResponseData,
   UpstreamResponse,
   MCPToolDefinition,
+  InternalExecuteRequest,
 } from '../types/adapter.js';
 
 /** Universal environment output. */
@@ -25,6 +26,52 @@ export class EnvironmentAdapter extends BaseAdapter {
     super(logger);
   }
 
+  /**
+   * Translate the canonical category path into each provider's real endpoint.
+   *
+   * One request path cannot be correct for every provider here: Open-Meteo's air
+   * quality lives at `/v1/air-quality` while OpenWeather's lives at
+   * `/data/2.5/air_pollution`. The base router concatenates `baseUrl + path`
+   * verbatim, so without this the fallback provider is asked for a path it does
+   * not serve and returns a 404 from its edge, which surfaces as a misleading
+   * CATEGORY_OUTAGE on a request the primary provider handled fine.
+   *
+   * Mapping comes from the provider's `metadata.path` (registered in the DB), so
+   * adding a provider needs no code change.
+   */
+  protected buildUrl(provider: ProviderAdapterConfig, request: InternalExecuteRequest): string {
+    const metaPath =
+      provider.metadata && typeof provider.metadata['path'] === 'string'
+        ? (provider.metadata['path'] as string)
+        : null;
+    const canonical =
+      provider.metadata && typeof provider.metadata['canonicalPath'] === 'string'
+        ? (provider.metadata['canonicalPath'] as string)
+        : '/v1/air-quality';
+
+    // Provider-specific param names (OpenWeather uses lat/lon, Open-Meteo uses
+    // latitude/longitude). Declared in metadata so no code change is needed per
+    // provider.
+    const aliases =
+      provider.metadata && typeof provider.metadata['paramAliases'] === 'object'
+        ? (provider.metadata['paramAliases'] as Record<string, string>)
+        : null;
+
+    let nextRequest = request;
+    if (aliases) {
+      const params: Record<string, string> = {};
+      for (const [k, v] of Object.entries(request.params ?? {})) {
+        params[aliases[k] ?? k] = v as string;
+      }
+      nextRequest = { ...nextRequest, params };
+    }
+
+    if (metaPath && request.path === canonical && metaPath !== canonical) {
+      return super.buildUrl(provider, { ...nextRequest, path: metaPath });
+    }
+    return super.buildUrl(provider, nextRequest);
+  }
+
   async transformResponse(
     provider: ProviderAdapterConfig,
     response: UpstreamResponse,
@@ -39,6 +86,47 @@ export class EnvironmentAdapter extends BaseAdapter {
       timestamp: null,
       provider: provider.name,
     };
+    // Air quality (Open-Meteo Air Quality / OpenWeather air_pollution).
+    //
+    // `air_quality` was one of the three declared output types, but nothing ever
+    // produced it: the only parser here handled UK Carbon Intensity, so a call
+    // for air quality normalised to `raw` with hasValue=false even when the
+    // upstream returned a perfectly good reading.
+    //
+    // Open-Meteo Air Quality shape:
+    //   { current: { time, pm2_5, pm10, us_aqi, ... } }
+    // OpenWeather air_pollution shape:
+    //   { list: [{ main: { aqi }, components: { pm2_5, pm10, ... } }] }
+    const aqCurrent = raw.current as Record<string, unknown> | undefined;
+    if (aqCurrent && (aqCurrent.us_aqi !== undefined || aqCurrent.pm2_5 !== undefined)) {
+      const aqi = aqCurrent.us_aqi ?? aqCurrent.european_aqi ?? null;
+      normalized.type = 'air_quality';
+      // Prefer the index; fall back to PM2.5 when the provider gives no index.
+      normalized.value = (aqi as number) ?? (aqCurrent.pm2_5 as number) ?? null;
+      normalized.hasValue = normalized.value !== null;
+      normalized.unit = aqi !== null && aqi !== undefined ? 'USAQI' : 'µg/m³';
+      normalized.timestamp = (aqCurrent.time as string) ?? null;
+      return { data: normalized, providerName: provider.name };
+    }
+
+    // OpenWeather air_pollution: list[0].main.aqi is a 1-5 band, not AQI; the
+    // component concentration is the more useful number when there is no index.
+    const owList = raw.list as Record<string, unknown>[] | undefined;
+    if (owList && owList.length > 0) {
+      const first = owList[0] as Record<string, unknown>;
+      const main = first.main as Record<string, unknown> | undefined;
+      const components = first.components as Record<string, unknown> | undefined;
+      if (main || components) {
+        const pm25 = components?.pm2_5 as number | undefined;
+        normalized.type = 'air_quality';
+        normalized.value = pm25 ?? (main?.aqi as number) ?? null;
+        normalized.hasValue = normalized.value !== null;
+        normalized.unit = pm25 !== undefined ? 'µg/m³' : 'OWM AQI band (1-5)';
+        normalized.timestamp = null;
+        return { data: normalized, providerName: provider.name };
+      }
+    }
+
     // UK Carbon Intensity: { data: [{ from, to, regions: [{ intensity: { forecast, actual } }] }] }
     if (raw.data && Array.isArray(raw.data) && raw.data.length > 0) {
       const entry = raw.data[0] as Record<string, unknown>;
