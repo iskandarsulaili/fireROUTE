@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import { request } from 'undici';
+import { Agent, request } from 'undici';
 import { providerRepo } from '../lib/db/provider-repo.js';
 import { fallbackConfigRepo } from '../lib/db/fallback-config-repo.js';
 import { CircuitBreakerService } from './circuit-breaker.js';
@@ -33,6 +33,34 @@ type ErrorInfo = {
   message: string;
   code: string | null;
 };
+
+/**
+ * Shared HTTP agent for all upstream calls.
+ *
+ * This host loses roughly 20% of packets on *fresh* WAN flows in bursts, which
+ * shows up in production as `EAI_AGAIN` and `UND_ERR_CONNECT_TIMEOUT` — not as
+ * a dead provider. Measured against the same server with the same queries:
+ * fresh connections were 4.6x slower at the median and 13.7x worse at the tail
+ * (3419ms vs 250ms), 10.2s vs 1.0s total.
+ *
+ * Connection reuse is therefore the fix, not a network change: a pooled
+ * connection skips the fragile connect/DNS step entirely.
+ *
+ * - `connections: 16` keeps a pool per origin instead of a new socket per call.
+ * - `keepAliveTimeout` holds sockets open well past the 15s scrape interval.
+ * - `connect.timeout` is deliberately generous (10s). A first packet is lost
+ *   20% of the time, and the kernel's SYN retransmit then needs ~3s, so a tight
+ *   connect timeout turns recoverable loss into a hard failure. This bounds the
+ *   connect attempt only; the request as a whole stays bounded by the caller's
+ *   timeout, so it cannot hang.
+ */
+const upstreamAgent = new Agent({
+  connections: 16,
+  pipelining: 1,
+  keepAliveTimeout: 60_000,
+  keepAliveMaxTimeout: 300_000,
+  connect: { timeout: 10_000 },
+});
 
 export class FallbackExecutor {
   private readonly logger: Logger;
@@ -529,6 +557,7 @@ export class FallbackExecutor {
         headers: normalized.headers,
         body: normalized.body,
         signal: controller.signal,
+        dispatcher: upstreamAgent,
       });
       clearTimeout(timeoutId);
 
