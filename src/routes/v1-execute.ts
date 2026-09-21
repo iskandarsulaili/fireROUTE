@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type { ExecuteRequest, ExecuteResult } from '../types/execute.js';
 import type { InternalExecuteRequest } from '../types/adapter.js';
 import { FallbackExecutor } from '../services/fallback-executor.js';
-import { CircuitBreakerService } from '../services/circuit-breaker.js';
+import { CircuitBreakerService, fallbackExecutor } from '../services/circuit-breaker.js';
 import { categoryRepo } from '../lib/db/category-repo.js';
 import { adapterRegistry } from '../adapters/registry.js';
 import { logger } from '../lib/logger.js';
@@ -40,8 +40,11 @@ export async function v1ExecuteRoutes(
   fastify: FastifyInstance,
   _opts: unknown,
 ): Promise<void> {
-  const circuitBreaker = new CircuitBreakerService(logger as any);
-  const fallbackExecutor = new FallbackExecutor(circuitBreaker, logger as any);
+  // Use the shared breaker/executor so request-time evaluation sees the state
+  // the canary timer updates. Constructing a second instance here meant a
+  // recovered provider could still be rejected by this route.
+  void CircuitBreakerService;
+  void FallbackExecutor;
 
   /**
    * POST /v1/execute

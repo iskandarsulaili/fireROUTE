@@ -2,7 +2,7 @@ import { buildApp } from './app.js';
 import { serverConfig } from './config/index.js';
 import prisma from './lib/db/prisma.js';
 import { logger } from './lib/logger.js';
-import { CircuitBreakerService } from './services/circuit-breaker.js';
+import { circuitBreaker, fallbackExecutor } from './services/circuit-breaker.js';
 import { categoryRepo } from './lib/db/category-repo.js';
 
 /**
@@ -32,10 +32,15 @@ async function main() {
     logger.warn({ error: (err as Error).message }, 'Failed to seed categories (non-fatal)');
   }
 
-  // 3. Initialize circuit breaker
-  const circuitBreaker = new CircuitBreakerService(logger as any);
+  // 3. Initialize circuit breaker (shared instance — see services/circuit-breaker.ts)
   try {
     await circuitBreaker.initialize();
+    // Give the breaker the function that actually performs a probe, so a
+    // DEGRADED provider can be brought back once it recovers. Without this the
+    // canary timer only logged candidates and providers stayed open forever.
+    circuitBreaker.setCanaryProbeRunner((providerId, providerName, categorySlug) =>
+      fallbackExecutor.executeCanary(providerId, providerName, categorySlug),
+    );
     circuitBreaker.startCanaryProbes();
     logger.info('Circuit breaker initialized');
   } catch (err) {

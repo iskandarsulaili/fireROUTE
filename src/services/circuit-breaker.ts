@@ -9,6 +9,8 @@ import { providerRepo } from '../lib/db/provider-repo.js';
 import { fallbackConfigRepo } from '../lib/db/fallback-config-repo.js';
 import { categoryRepo } from '../lib/db/category-repo.js';
 import { v4 as uuidv4 } from 'uuid';
+import { logger } from '../lib/logger.js';
+import { FallbackExecutor } from './fallback-executor.js';
 
 export interface Logger {
   info(obj: any, msg?: string): void;
@@ -29,6 +31,10 @@ export class CircuitBreakerService {
   private readonly events: CircuitBreakerEvent[] = [];
   private readonly logger: Logger;
   private canaryTimer: NodeJS.Timeout | null = null;
+  /** Installed by the server so this service need not import FallbackExecutor. */
+  private canaryProbeRunner:
+    | ((providerId: string, providerName: string, categorySlug: string) => Promise<boolean>)
+    | null = null;
   private readonly CANARY_INTERVAL_MS = 30_000; // check every 30s for canary candidates
   private readonly DEAD_COOLDOWN_MULTIPLIER = 2;
 
@@ -284,9 +290,16 @@ export class CircuitBreakerService {
       state.lastProbedAt = now;
 
       if (isCanaryProbe) {
-        state.healthStatus = ProviderHealthStatus.DEAD;
+        // A canary probe must never ESCALATE a provider. It runs against a
+        // synthetic request (path '/'), so a failure here says nothing about
+        // whether the provider's real endpoints work — and a single transient
+        // DNS blip (getaddrinfo EAI_AGAIN) was previously enough to push a
+        // DEGRADED provider straight to DEAD with a doubled cooldown, taking it
+        // out of service for real traffic. A failed probe only re-arms the
+        // cooldown so the next cycle retries; escalation stays the job of the
+        // threshold logic below, driven by real request failures.
         state.cooldownUntil = new Date(
-          now.getTime() + config.cooldownMinutes * this.DEAD_COOLDOWN_MULTIPLIER * 60 * 1000,
+          now.getTime() + config.cooldownMinutes * 60 * 1000,
         );
         state.stateChangedAt = now;
         this.emitEvent({
@@ -341,8 +354,15 @@ export class CircuitBreakerService {
 
   /**
    * Start the canary probe background timer.
-   * Every CANARY_INTERVAL_MS, checks for providers whose cooldown has expired.
-   * Those providers are candidates for canary probing.
+   * Every CANARY_INTERVAL_MS, checks for providers whose cooldown has expired
+   * and probes them so a recovered provider is brought back into service.
+   *
+   * The probe is delegated to a callback installed by ``setCanaryProbeRunner``:
+   * executing a request needs the ``FallbackExecutor``, which itself depends on
+   * this service, so wiring it here would create an import cycle. Without a
+   * runner installed this timer used to only *log* the candidates, leaving every
+   * DEGRADED provider stuck open forever — the recovery path existed
+   * (``FallbackExecutor.executeCanary``) but nothing ever called it.
    */
   startCanaryProbes(): void {
     if (this.canaryTimer) {
@@ -352,18 +372,61 @@ export class CircuitBreakerService {
     this.canaryTimer = setInterval(async () => {
       try {
         const candidates = await this.findCanaryCandidates();
-        if (candidates.length > 0) {
-          this.logger.info(
-            { candidateCount: candidates.length, candidates },
-            'Canary candidates ready for probing',
-          );
-        } else {
+        if (candidates.length === 0) {
           this.logger.debug({ candidateCount: 0 }, 'No canary candidates found');
+          return;
+        }
+
+        if (!this.canaryProbeRunner) {
+          this.logger.warn(
+            { candidateCount: candidates.length },
+            'Canary candidates found but no probe runner is installed; '
+              + 'degraded providers cannot recover',
+          );
+          return;
+        }
+
+        for (const candidate of candidates) {
+          try {
+            const recovered = await this.canaryProbeRunner(
+              candidate.providerId,
+              candidate.providerName,
+              candidate.categorySlug,
+            );
+            this.logger.info(
+              {
+                providerId: candidate.providerId,
+                providerName: candidate.providerName,
+                categorySlug: candidate.categorySlug,
+                recovered,
+              },
+              recovered
+                ? 'Canary probe recovered provider'
+                : 'Canary probe found provider still failing',
+            );
+          } catch (error) {
+            this.logger.error(
+              { err: error, providerId: candidate.providerId },
+              'Canary probe failed to execute',
+            );
+          }
         }
       } catch (error) {
         this.logger.error({ err: error }, 'Failed to process canary probe interval');
       }
     }, this.CANARY_INTERVAL_MS);
+  }
+
+  /**
+   * Install the function that actually performs a canary probe.
+   *
+   * Kept as a callback so this service does not import ``FallbackExecutor``
+   * (which imports this file), avoiding a module cycle.
+   */
+  setCanaryProbeRunner(
+    runner: (providerId: string, providerName: string, categorySlug: string) => Promise<boolean>,
+  ): void {
+    this.canaryProbeRunner = runner;
   }
 
   /** Stop the canary probe timer */
@@ -618,3 +681,19 @@ export class CircuitBreakerService {
     }
   }
 }
+
+/**
+ * Shared circuit breaker instance.
+ *
+ * The canary timer (started from the server entrypoint) and the request path
+ * (`/v1/execute`) MUST observe the same breaker state. When each constructed
+ * its own instance, a request was evaluated against a stale copy that the
+ * recovering timer never touched, so a provider could be probed back to health
+ * while requests still saw it DEGRADED.
+ */
+export const circuitBreaker = new CircuitBreakerService(logger);
+
+/**
+ * Shared fallback executor, bound to the shared circuit breaker.
+ */
+export const fallbackExecutor = new FallbackExecutor(circuitBreaker, logger);
