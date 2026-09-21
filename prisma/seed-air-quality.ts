@@ -26,6 +26,8 @@ interface AqProviderDef {
   timeoutMs: number;
   authConfig?: Record<string, string>;
   metadata: Record<string, unknown>;
+  /** Whether this provider should be live. Explicit per provider — see the loop. */
+  isActive: boolean;
 }
 
 function readEnvFile(path: string): Record<string, string> {
@@ -58,6 +60,7 @@ async function main(): Promise<void> {
       priority: 0,
       rateLimitPerMinute: 120,
       timeoutMs: 8000,
+      isActive: true,
       metadata: {
         description: 'Global air quality (US AQI, PM2.5, PM10) — keyless',
         docs: 'https://open-meteo.com/en/docs/air-quality-api',
@@ -85,6 +88,7 @@ async function main(): Promise<void> {
       priority: 1,
       rateLimitPerMinute: 60,
       timeoutMs: 8000,
+      isActive: true,
       authConfig: { apiKey: owKey, in: 'query', keyName: 'appid' },
       metadata: {
         description: 'Global air pollution (AQI band, PM2.5, PM10, O3, NO2, SO2, CO)',
@@ -98,11 +102,81 @@ async function main(): Promise<void> {
         path: '/data/2.5/air_pollution',
         // OpenWeather names the coordinates lat/lon, not latitude/longitude.
         paramAliases: { latitude: 'lat', longitude: 'lon' },
+        // Keep the same variable list the canonical call carries.
+        defaultParams: { current: 'us_aqi,pm2_5,pm10,european_aqi' },
       },
     });
   } else {
     console.log('  OPENWEATHER_API_KEY not found in .env.providers — skipping OpenWeather');
   }
+
+  // ── Optional providers ─────────────────────────────────────────────────────
+  // Both are seeded INACTIVE. Measured 2026-09-21; activate only when the
+  // blocker below is cleared, and turn them off again if they cannot serve.
+
+  // OpenAQ v3 requires a real API key (keyless requests return 401). Register a
+  // key at https://explore.openaq.org (self-service, no cost) and put it in
+  // .env.providers as OPENAQ_API_KEY, then flip isActive to true. Its /v3 API
+  // serves measurements per location/sensor, so activating it also needs an
+  // adapter mapping from lat/lon to a nearby location.
+  const openaqKey = env['OPENAQ_API_KEY'];
+  providers.push({
+    slug: 'openaq',
+    name: 'OpenAQ',
+    baseUrl: 'https://api.openaq.org/v3',
+    authType: 'api_key',
+    priority: 2,
+    rateLimitPerMinute: 60,
+    timeoutMs: 8000,
+    isActive: Boolean(openaqKey),
+    authConfig: {
+      apiKey: openaqKey ?? '',
+      in: 'header',
+      headerName: 'X-API-Key',
+    },
+    metadata: {
+      description: 'Global ground-station air quality measurements (v3 API)',
+      docs: 'https://docs.openaq.org/',
+      free: true,
+      global: true,
+      outputType: 'air_quality',
+      canonicalPath: '/v1/air-quality',
+      // NOTE: no `path` override — v3 serves measurements per location/sensor,
+      // not a lat/lon point query, so this provider cannot yet answer the
+      // canonical air-quality call even with a key. Needs an adapter mapping.
+      requiresKeyEnv: 'OPENAQ_API_KEY',
+      blockedReason:
+        'v3 exposes /locations and /sensors, not a lat/lon point query; '
+        + 'needs an adapter mapping. Key also required.',
+    },
+  });
+
+  // PM2.5 Open Data Portal (LASS, Taiwan). Keyless and reachable, but measured
+  // coverage is Taiwan-only: 462 stations, 0 with any coordinates outside the
+  // Taiwan bounding box, and it serves one bulk snapshot rather than a
+  // coordinate query. It therefore cannot serve our global city list.
+  providers.push({
+    slug: 'pm25-open-data',
+    name: 'PM2.5 Open Data Portal',
+    baseUrl: 'https://pm25.lass-net.org',
+    authType: 'no_auth',
+    priority: 3,
+    rateLimitPerMinute: 30,
+    timeoutMs: 15000,
+    isActive: false,
+    metadata: {
+      description: 'Taiwan (LASS) AirBox PM2.5 network — regional only',
+      docs: 'https://pm25.lass-net.org/',
+      free: true,
+      global: false,
+      outputType: 'air_quality',
+      canonicalPath: '/v1/air-quality',
+      coverage: 'Taiwan only (462 stations, all inside the TW bounding box)',
+      blockedReason:
+        'Taiwan-only coverage and a bulk snapshot endpoint (no coordinate '
+        + 'query), so it cannot answer air-quality calls for global cities.',
+    },
+  });
 
   const category = await prisma.providerCategory.findUnique({ where: { slug: 'environment' } });
   if (!category) {
@@ -119,18 +193,23 @@ async function main(): Promise<void> {
       metadata: JSON.stringify(metadata),
       healthStatus: 'HEALTHY',
       failureCount: 0,
-      // Active: these are the providers that make air_quality reachable.
-      isActive: true,
+      // Taken from the definition, never hardcoded. A blanket `true` here is
+      // what silently re-activated the misconfigured UK Carbon Intensity
+      // provider on every seed run.
     };
 
     if (existing) {
       await prisma.providerConnection.update({ where: { id: existing.id }, data });
-      console.log(`  UPDATED ${def.slug} (active, priority ${def.priority})`);
+      console.log(
+        `  UPDATED ${def.slug} (${def.isActive ? 'active' : 'inactive'}, priority ${def.priority})`,
+      );
     } else {
       await prisma.providerConnection.create({ data });
-      console.log(`  CREATED ${def.slug} (active, priority ${def.priority})`);
+      console.log(
+        `  CREATED ${def.slug} (${def.isActive ? 'active' : 'inactive'}, priority ${def.priority})`,
+      );
     }
-  }
+    }
 
   console.log('\nDone.');
 }
