@@ -127,7 +127,9 @@ async function main(): Promise<void> {
     authType: 'api_key',
     priority: 2,
     rateLimitPerMinute: 60,
-    timeoutMs: 8000,
+    // Two sequential requests (coordinate -> station, then value), and the free
+    // tier is slow: measured 0.4s-15s for the same call. Needs the full budget.
+    timeoutMs: 20000,
     isActive: Boolean(openaqKey),
     authConfig: {
       apiKey: openaqKey ?? '',
@@ -141,13 +143,17 @@ async function main(): Promise<void> {
       global: true,
       outputType: 'air_quality',
       canonicalPath: '/v1/air-quality',
-      // NOTE: no `path` override — v3 serves measurements per location/sensor,
-      // not a lat/lon point query, so this provider cannot yet answer the
-      // canonical air-quality call even with a key. Needs an adapter mapping.
+      // No `path` override: the adapter resolves the coordinate to a station and
+      // rewrites the URL itself (see EnvironmentAdapter.normalizeRequest).
+      requiresLocationLookup: true,
       requiresKeyEnv: 'OPENAQ_API_KEY',
-      blockedReason:
-        'v3 exposes /locations and /sensors, not a lat/lon point query; '
-        + 'needs an adapter mapping. Key also required.',
+      coverage:
+        'Global ground stations. Measured 2026-09-21: 14/20 of our cities have a '
+        + 'pm25 station reporting within 24h; a few have none (Moscow, Shanghai, '
+        + 'Beijing, Sao Paulo) and fail over to the next provider.',
+      freshnessGuard:
+        'Stations are only accepted when their latest reading is < 24h old; some '
+        + 'nearby stations report data years old.',
     },
   });
 
