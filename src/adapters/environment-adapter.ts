@@ -66,6 +66,27 @@ export class EnvironmentAdapter extends BaseAdapter {
       nextRequest = { ...nextRequest, params };
     }
 
+    // Default the fields a provider needs, when the caller did not ask for any.
+    //
+    // Open-Meteo returns NO `current` block unless you list the variables, and the
+    // upstream then answers 200 with only coordinates. The adapter has nothing to
+    // parse, so the response is `{success: true, hasValue: false}` — a
+    // successful-looking empty result. Supplying the defaults turns a silent empty
+    // answer into real data.
+    const defaults =
+      provider.metadata && typeof provider.metadata['defaultParams'] === 'object'
+        ? (provider.metadata['defaultParams'] as Record<string, string>)
+        : null;
+    if (defaults) {
+      const params: Record<string, string> = { ...(nextRequest.params ?? {}) };
+      for (const [k, v] of Object.entries(defaults)) {
+        if (params[k] === undefined || params[k] === '') {
+          params[k] = v;
+        }
+      }
+      nextRequest = { ...nextRequest, params };
+    }
+
     if (metaPath && request.path === canonical && metaPath !== canonical) {
       return super.buildUrl(provider, { ...nextRequest, path: metaPath });
     }

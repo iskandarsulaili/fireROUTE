@@ -68,6 +68,10 @@ async function main(): Promise<void> {
         // path for it. The environment adapter translates between them.
         canonicalPath: '/v1/air-quality',
         path: '/v1/air-quality',
+        // Open-Meteo returns no `current` block unless the variables are listed,
+        // which yields a 200 with no parseable data. Default them so a caller that
+        // omits `current` still gets a reading.
+        defaultParams: { current: 'us_aqi,pm2_5,pm10,european_aqi' },
       },
     },
   ];
