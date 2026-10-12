@@ -100,6 +100,10 @@ const ACTIVATE: Contract[] = [
   { slug: 'icanhazdadjoke', path: '/', acceptedParams: [] },
   { slug: 'kanye-rest', path: '/', acceptedParams: [] },
   { slug: 'kroki', path: '/health', acceptedParams: [], note: "kroki's real API needs an encoded diagram, so the bare call uses its health endpoint — reachable, and honest about what it returns." },
+  { slug: 'dummyjson', name: 'DummyJSON', baseUrl: 'https://dummyjson.com', path: '/products/1', acceptedParams: [] },
+  { slug: 'github-events', name: 'GitHub Events', baseUrl: 'https://api.github.com', path: '/events', queryDefaults: { per_page: 1 }, acceptedParams: ['per_page'], note: 'anonymous GitHub API allows 60 requests/hour per IP, so this provider is capped at 1/minute.' },
+  { slug: 'github-users', name: 'GitHub Users', baseUrl: 'https://api.github.com', path: '/users/octocat', acceptedParams: [], note: 'anonymous GitHub API allows 60 requests/hour per IP, so this provider is capped at 1/minute.' },
+  { slug: 'github-repos', name: 'GitHub Repositories', baseUrl: 'https://api.github.com', path: '/repos/actions/runner', acceptedParams: [], note: 'anonymous GitHub API allows 60 requests/hour per IP, so this provider is capped at 1/minute.' },
 ];
 
 /** 2 — cannot serve the category; row kept with the measured reason. */
@@ -140,6 +144,10 @@ const CATEGORY_OF: Record<string, string> = {
   'google-books': 'books',
   'open-library': 'books',
   'transport-opendata-ch': 'transportation',
+  dummyjson: 'shopping',
+  'github-events': 'events',
+  'github-users': 'social',
+  'github-repos': 'continuous-integration',
   tinyurl: 'url-shorteners',
   coingecko: 'cryptocurrency',
   'lorem-picsum': 'photography',
