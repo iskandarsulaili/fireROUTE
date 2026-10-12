@@ -211,40 +211,74 @@ export const categoryRepo = {
     }
   },
 
-  /** Get category health summary (counts of healthy/degraded/dead providers) */
+  /**
+   * Get category health summary (counts of healthy/degraded/dead providers).
+   *
+   * `healthyProviders` counts providers marked HEALTHY, but HEALTHY is also the schema default for a
+   * provider that has never been probed (`healthStatus String @default("HEALTHY")`, mirrored in
+   * provider-repo's `model?.healthStatus ?? HEALTHY`). That is how 512 api_key providers reported
+   * healthy with `lastProbedAt = null`. The count is therefore split: `probedHealthyProviders` is a
+   * measurement, `unprobedProviders` is a default, and only the former should be read as readiness.
+   */
   async getCategoryHealthSummary(slug: string): Promise<{
     totalProviders: number;
     healthyProviders: number;
+    probedHealthyProviders: number;
+    unprobedProviders: number;
     degradedProviders: number;
     deadProviders: number;
   }> {
     try {
       logger.debug({ slug }, 'Getting category health summary');
-      const [totalProviders, healthyProviders, degradedProviders, deadProviders] =
-        await prisma.$transaction([
-          prisma.providerConnection.count({
-            where: { category: { slug } },
-          }),
-          prisma.providerConnection.count({
-            where: {
-              category: { slug },
-              healthStatus: ProviderHealthStatus.HEALTHY,
-            },
-          }),
-          prisma.providerConnection.count({
-            where: {
-              category: { slug },
-              healthStatus: ProviderHealthStatus.DEGRADED,
-            },
-          }),
-          prisma.providerConnection.count({
-            where: { category: { slug }, healthStatus: ProviderHealthStatus.DEAD },
-          }),
-        ]);
+      const [
+        totalProviders,
+        healthyProviders,
+        probedHealthyProviders,
+        unprobedProviders,
+        degradedProviders,
+        deadProviders,
+      ] = await prisma.$transaction([
+        prisma.providerConnection.count({
+          where: { category: { slug } },
+        }),
+        prisma.providerConnection.count({
+          where: {
+            category: { slug },
+            healthStatus: ProviderHealthStatus.HEALTHY,
+          },
+        }),
+        // Measured: a liveness probe has actually recorded a result.
+        prisma.providerConnection.count({
+          where: {
+            category: { slug },
+            healthStatus: ProviderHealthStatus.HEALTHY,
+            lastProbedAt: { not: null },
+          },
+        }),
+        // Defaulted: HEALTHY only because that is the column default.
+        prisma.providerConnection.count({
+          where: {
+            category: { slug },
+            healthStatus: ProviderHealthStatus.HEALTHY,
+            lastProbedAt: null,
+          },
+        }),
+        prisma.providerConnection.count({
+          where: {
+            category: { slug },
+            healthStatus: ProviderHealthStatus.DEGRADED,
+          },
+        }),
+        prisma.providerConnection.count({
+          where: { category: { slug }, healthStatus: ProviderHealthStatus.DEAD },
+        }),
+      ]);
 
       return {
         totalProviders,
         healthyProviders,
+        probedHealthyProviders,
+        unprobedProviders,
         degradedProviders,
         deadProviders,
       };

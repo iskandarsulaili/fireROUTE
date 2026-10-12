@@ -30,19 +30,33 @@ export async function healthRoutes(
     const categories = await categoryRepo.findAll();
     const categoryHealth: Record<
       string,
-      { status: string; healthyProviders: number; totalProviders: number }
+      {
+        status: string;
+        healthyProviders: number;
+        probedHealthyProviders: number;
+        unprobedProviders: number;
+        totalProviders: number;
+      }
     > = {};
 
     for (const cat of categories) {
       const summary = await categoryRepo.getCategoryHealthSummary(cat.slug);
       categoryHealth[cat.slug] = {
+        // Readiness here means a provider was MEASURED healthy. Without the split, a category whose
+        // providers carry the HEALTHY column default reported 'healthy' the moment it was seeded,
+        // which is how this endpoint overstated readiness while 1384 of 1504 providers had never been
+        // probed.
         status:
-          summary.healthyProviders > 0
+          summary.probedHealthyProviders > 0
             ? 'healthy'
-            : summary.degradedProviders > 0
-              ? 'degraded'
-              : 'unhealthy',
+            : summary.unprobedProviders > 0
+              ? 'unprobed'
+              : summary.degradedProviders > 0
+                ? 'degraded'
+                : 'unhealthy',
         healthyProviders: summary.healthyProviders,
+        probedHealthyProviders: summary.probedHealthyProviders,
+        unprobedProviders: summary.unprobedProviders,
         totalProviders: summary.totalProviders,
       };
     }

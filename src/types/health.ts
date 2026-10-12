@@ -21,8 +21,12 @@ export interface HealthCheckResponse {
     {
       /** Health status of the category. */
       status: string;
-      /** Count of healthy providers in the category. */
+      /** Count of providers marked healthy, including those that have never been probed. */
       healthyProviders: number;
+      /** Count of providers MEASURED healthy (a probe recorded a result) — the readiness number. */
+      probedHealthyProviders: number;
+      /** Count of providers still carrying the HEALTHY column default, i.e. never probed. */
+      unprobedProviders: number;
       /** Total providers registered for the category. */
       totalProviders: number;
     }

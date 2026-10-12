@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import pathlib
 import sqlite3
 import sys
@@ -104,7 +105,23 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--category", action="append")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--force", action="store_true", help="probe even when the host is busy")
     args = ap.parse_args()
+
+    # Refuse to rank on a busy host, because the ranking is only as good as the latency it measures.
+    # Measured earlier: concurrent I/O inflated every probe latency roughly fivefold on this box, and a
+    # burst at the gateway's own 100/min limit reads as mass failure (two whole categories were marked
+    # DEGRADED while working). The timer fires in a quiet window; --force overrides deliberately.
+    if not args.force and hasattr(os, "getloadavg"):
+        load_1m = os.getloadavg()[0]
+        budget = os.cpu_count() or 1
+        if load_1m > budget * 0.5:
+            print(
+                f"skipping: 1-minute load {load_1m:.1f} on {budget} CPUs is above half the box, so a "
+                f"ranking taken now would be measuring contention rather than the providers "
+                f"(use --force to override)"
+            )
+            return 0
 
     conn = sqlite3.connect(DB)
     conn.row_factory = sqlite3.Row
