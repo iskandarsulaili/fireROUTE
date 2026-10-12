@@ -6,6 +6,7 @@ import type {
   UpstreamResponse,
   MCPToolDefinition,
 } from '../types/adapter.js';
+import type { InternalExecuteRequest } from '../types/adapter.js';
 
 
 /**
@@ -44,11 +45,94 @@ export class WeatherAdapter extends BaseAdapter {
     super(logger);
   }
 
+  /**
+   * Provider-declared request translation.
+   *
+   * Measured 2026-10-12: Open-Meteo answers `/v1/forecast?latitude&longitude`
+   * with coordinates only and no measurements, so every normalized field came
+   * back null; adding `current=temperature_2m,...` returned 25 °C / Rainy / 95 %
+   * in 233 ms. Which selector a provider needs, and what its coordinate params
+   * are called, is that provider's own contract — so it is declared in the
+   * provider's row (`metadata.queryDefaults`, `metadata.paramAliases`) and merged
+   * here. This adapter stays provider-agnostic: no provider is named in it, the
+   * same way the environment adapter already works.
+   */
+  protected buildUrl(
+    provider: ProviderAdapterConfig,
+    request: InternalExecuteRequest,
+  ): string {
+    const meta = (provider.metadata ?? {}) as Record<string, unknown>;
+    const aliases = (meta['paramAliases'] ?? null) as Record<string, string> | null;
+    const defaults = (meta['queryDefaults'] ?? null) as Record<string, string> | null;
+    const hasPathOverride = typeof meta['path'] === 'string' && (meta['path'] as string).startsWith('/');
+    if (!aliases && !defaults && !hasPathOverride) return super.buildUrl(provider, request);
+
+    const params: Record<string, string> = {};
+    for (const [key, value] of Object.entries(request.params ?? {})) {
+      params[aliases?.[key] ?? key] = value as string;
+    }
+    // Caller-supplied parameters always win over the provider defaults.
+    const merged = { ...(defaults ?? {}), ...params };
+    // The canonical request path is a fireROUTE name, not every provider's path:
+    // 7Timer serves its machine-readable API at /bin/api.pl, Open-Meteo at
+    // /v1/forecast. metadata.path carries the real one, exactly as the
+    // environment adapter already does — without it the provider answers 404 and
+    // the pool fails over on every request.
+    const providerPath = meta['path'];
+    const path =
+      typeof providerPath === 'string' && providerPath.startsWith('/')
+        ? providerPath
+        : request.path;
+    return super.buildUrl(provider, { ...request, path, params: merged });
+  }
+
   async transformResponse(
     provider: ProviderAdapterConfig,
     response: UpstreamResponse,
   ): Promise<NormalizedResponseData> {
     const rawData = response.body as Record<string, unknown>;
+
+    // 7Timer-style payloads nest the observation in a `dataseries` array
+    // (/bin/api.pl?product=civil&output=json -> { dataseries: [ { temp2m, rh2m,
+    // wind10m_speed, weather, ... } ] }), which the flat extractors below cannot
+    // see — the call returned 200 with every field null. The nearest timepoint is
+    // therefore normalized here, the same way this adapter already special-cases
+    // the MET Malaysia and AviationWeather payloads.
+    const series = Array.isArray(rawData['dataseries'])
+      ? (rawData['dataseries'] as Record<string, unknown>[])
+      : null;
+    if (series && series.length > 0) {
+      const point = series[0] as Record<string, unknown>;
+      const temp = this.findNumber(point, ['temp2m', 'temp', 'temperature']);
+      const rh = (this.findString(point, ['rh2m']) ?? '').replace(/[^0-9.]/g, '');
+      const humidity = rh ? Number.parseFloat(rh) : Number.NaN;
+      // This shape nests wind as { direction: 'SW', speed: 3 } in m/s.
+      const windObj = (point['wind10m'] ?? null) as Record<string, unknown> | null;
+      const windRaw =
+        windObj && windObj['speed'] !== undefined
+          ? String(windObj['speed'])
+          : (this.findString(point, ['wind10m_speed']) ?? '');
+      const windMs = Number.parseFloat(windRaw.replace(/[^0-9.]/g, ''));
+      const dirWord = windObj && typeof windObj['direction'] === 'string' ? windObj['direction'] : '';
+      const cond = this.findString(point, ['weather']);
+      const seriesOutput: UniversalWeatherOutput = {
+        temperatureCelsius: temp,
+        condition: this.standardizeCondition(cond),
+        conditionRaw: cond,
+        humidityPercent: Number.isFinite(humidity) ? humidity : null,
+        windSpeedKmh: Number.isFinite(windMs) ? Math.round(windMs * 36) / 10 : null,
+        windDirectionDegrees: this.compassWordToDegrees(dirWord),
+        locationName: null,
+        region: null,
+        country: null,
+        latitude: this.extractLatitude(rawData),
+        longitude: this.extractLongitude(rawData),
+        timestamp: new Date().toISOString(),
+        provider: provider.name,
+      };
+      return { data: seriesOutput, providerName: provider.name };
+    }
+
     const rawCondition = this.extractCondition(rawData);
 
     const normalized: UniversalWeatherOutput = {
@@ -105,9 +189,35 @@ export class WeatherAdapter extends BaseAdapter {
 
   // ── Universal condition standardizer ─────────────────────────────
 
+  /** 'SW' -> 225. Compass words are a provider's own vocabulary, not a standard. */
+  private compassWordToDegrees(wordRaw: string): number | null {
+    const points = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+    const idx = points.indexOf(wordRaw.trim().toUpperCase());
+    if (idx < 0) return null;
+    return Math.round(idx * 22.5);
+  }
+
   private standardizeCondition(raw: string | null): UniversalCondition {
     if (!raw) return 'Unknown';
     const c = raw.toLowerCase().trim();
+
+    // Compact provider tokens first: some providers pack the condition into one
+    // word with a day/night suffix and no word boundaries ('clearday',
+    // 'ishowerday', 'pcloudyday', 'tsday'), which the regexes below cannot see —
+    // they returned 'Unknown' for a payload that plainly said "isolated showers".
+    const compact = c.replace(/[^a-z]/g, '').replace(/(day|night)$/, '');
+    if (compact) {
+      if (compact === 'clear' || compact === 'sunny' || compact === 'fair') return 'Sunny';
+      if (compact.includes('ts') || compact.includes('storm')) return 'Stormy';
+      if (compact.includes('snow') || compact.includes('sleet')) return 'Snowy';
+      if (compact.includes('fog') || compact.includes('mist')) return 'Foggy';
+      if (compact.includes('shower') || compact.includes('rain') || compact.includes('drizzle')) return 'Rainy';
+      if (compact.includes('pcloudy') || compact.includes('cloudy') || compact.includes('overcast')) {
+        return compact.includes('overcast') ? 'Overcast' : 'Cloudy';
+      }
+      if (compact.includes('windy')) return 'Windy';
+      if (compact.includes('humid')) return 'Cloudy';
+    }
 
     // Sunny / Clear
     if (/\b(clear|sunny|sun|bright|fair)\b/.test(c)) return 'Sunny';
