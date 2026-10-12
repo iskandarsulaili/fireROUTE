@@ -78,13 +78,41 @@ export abstract class BaseAdapter implements CategoryAdapter {
   // ---- Protected helpers ----
 
   protected buildUrl(provider: ProviderAdapterConfig, request: InternalExecuteRequest): string {
+    // Provider-declared request translation lives HERE, in the base class, because
+    // every adapter needs it and the first two that needed it each grew their own
+    // copy while the rest silently sent the canonical path:
+    //
+    //   * metadata.path          — the provider's real endpoint (7Timer answers on
+    //                              /bin/api.pl, the Art Institute on
+    //                              /api/v1/artworks/<id>, never on /v1/forecast).
+    //   * metadata.queryDefaults — required query parameters (Open-Meteo returns
+    //                              every field null without current=…).
+    //   * metadata.paramAliases  — the provider's spelling of a canonical param.
+    //
+    // Measured 2026-10-12: art-and-design had two providers the adapter already
+    // understood and still could not answer at all, because this method ignored the
+    // provider's own endpoint. Applying the aliases is idempotent (a provider key
+    // has no alias entry of its own), so the existing overrides that already merged
+    // these values can keep delegating here safely.
+    const meta = (provider.metadata ?? {}) as Record<string, unknown>;
+    const metaPath = typeof meta['path'] === 'string' ? (meta['path'] as string) : null;
+    const queryDefaults = (meta['queryDefaults'] ?? {}) as Record<string, unknown>;
+    const paramAliases = (meta['paramAliases'] ?? {}) as Record<string, string>;
+    const declaredParams: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(request.params ?? {})) {
+      const mapped = paramAliases[key] ?? key;
+      declaredParams[mapped] = value;
+    }
+    const effectiveParams = { ...queryDefaults, ...declaredParams };
+    const effectivePath = metaPath ?? request.path;
+
     const base = provider.baseUrl.replace(/\/$/, '');
-    const path = request.path.startsWith('/') ? request.path : `/${request.path}`;
+    const path = effectivePath.startsWith('/') ? effectivePath : `/${effectivePath}`;
     let url = `${base}${path}`;
 
     const params = new URLSearchParams();
-    for (const [key, value] of Object.entries(request.params)) {
-      if (value) params.append(key, value);
+    for (const [key, value] of Object.entries(effectiveParams)) {
+      if (value) params.append(key, String(value));
     }
 
     if (provider.authType === AuthType.API_KEY && provider.authConfig) {
