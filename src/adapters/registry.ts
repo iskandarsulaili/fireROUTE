@@ -12,6 +12,7 @@ import { MusicAdapter } from './music-adapter.js';
 import { EntertainmentAdapter } from './entertainment-adapter.js';
 import { TransportationAdapter } from './transportation-adapter.js';
 import { OpenDataAdapter } from './open-data-adapter.js';
+import { SimpleCategoryAdapter } from './simple-category-adapter.js';
 import type { Logger } from './base-adapter.js';
 
 /**
@@ -43,6 +44,21 @@ class AdapterRegistry {
       throw new Error(`Adapter for category '${adapter.categorySlug}' is already registered`);
     }
     this.adapters.set(adapter.categorySlug, adapter);
+  }
+
+  /**
+   * Register the provider-agnostic normalizer for a category that has no tailored
+   * adapter. Returns false when a specific adapter already covers it, or when the
+   * generic one is already registered, so callers can report how many were added.
+   *
+   * Callers pass the category slugs that exist in the database, which keeps the two
+   * sides from drifting: a category documented and seeded later is covered on the
+   * next boot without anyone remembering to extend a list in this file.
+   */
+  registerGeneric(categorySlug: string): boolean {
+    if (this.adapters.has(categorySlug)) return false;
+    this.adapters.set(categorySlug, new SimpleCategoryAdapter(categorySlug));
+    return true;
   }
 
   /** Get adapter for a category slug. */

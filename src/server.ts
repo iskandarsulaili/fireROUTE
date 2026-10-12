@@ -4,6 +4,7 @@ import prisma from './lib/db/prisma.js';
 import { logger } from './lib/logger.js';
 import { circuitBreaker, fallbackExecutor } from './services/circuit-breaker.js';
 import { categoryRepo } from './lib/db/category-repo.js';
+import { adapterRegistry } from './adapters/registry.js';
 
 /**
  * Main server entrypoint.
@@ -30,6 +31,28 @@ async function main() {
     }
   } catch (err) {
     logger.warn({ error: (err as Error).message }, 'Failed to seed categories (non-fatal)');
+  }
+
+  // 2b. Give every category in the database a normalizer.
+  //
+  // 40 of the 52 seeded categories had no tailored adapter, so a call to one of them
+  // answered UNSUPPORTED_CATEGORY even when the providers behind it were live and
+  // keyless (animals: 12 providers, catfact.ninja and thecatapi.com both 200). The
+  // generic adapter reports what the provider actually returned and keeps the full
+  // body under `raw`. Registering from the database rather than a hardcoded list
+  // means a category added later is covered on the next boot.
+  try {
+    const categories = await prisma.providerCategory.findMany({ select: { slug: true } });
+    let added = 0;
+    for (const { slug } of categories) {
+      if (adapterRegistry.registerGeneric(slug)) added += 1;
+    }
+    logger.info(
+      { categories: categories.length, genericAdapters: added },
+      'Adapter coverage: tailored adapters plus the generic normalizer for the rest',
+    );
+  } catch (err) {
+    logger.warn({ error: (err as Error).message }, 'Failed to register generic adapters (non-fatal)');
   }
 
   // 3. Initialize circuit breaker (shared instance — see services/circuit-breaker.ts)
