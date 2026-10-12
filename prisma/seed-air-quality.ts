@@ -184,9 +184,21 @@ async function main(): Promise<void> {
     },
   });
 
-  const category = await prisma.providerCategory.findUnique({ where: { slug: 'environment' } });
+  // Ensure the environment category exists — same pattern as seed-open-data.
+  // A fresh database only has the categories its seeds created, so on a clean
+  // checkout this seed died with "category 'environment' not found" and the
+  // environment adapter (categorySlug 'environment') had no providers at all.
+  let category = await prisma.providerCategory.findUnique({ where: { slug: 'environment' } });
   if (!category) {
-    throw new Error("category 'environment' not found");
+    category = await prisma.providerCategory.create({
+      data: {
+        slug: 'environment',
+        name: 'Environment',
+        description:
+          'Air quality, weather and environmental measurements — keyless providers first.',
+      },
+    });
+    console.log(`Created category: ${category.slug}`);
   }
 
   for (const def of providers) {

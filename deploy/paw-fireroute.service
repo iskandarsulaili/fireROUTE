@@ -1,0 +1,30 @@
+[Unit]
+# fireROUTE — PAW's unified outbound-API gateway (weather/environment/open-data
+# providers behind one /v1/execute endpoint). PAW services reach it at
+# PAW_FIREROUTE_BASE_URL=http://localhost:3000/v1/execute, and Traefik exposes it
+# as fireoute.perhapsanotherway.com / fire.perhapsanotherway.com -> 127.0.0.1:3000.
+#
+# Without this unit the route answers 502 and every PAW caller falls back to its
+# own direct provider path (PAW_WEATHER_FIREROUTE_FALLBACK).
+Description=fireROUTE API routing gateway (PAW dependency)
+After=network-online.target
+Wants=network-online.target
+PartOf=paw.target
+
+[Service]
+Type=simple
+User=lot399
+Group=lot399
+WorkingDirectory=/home/lot399/openworld/fireROUTE
+EnvironmentFile=/home/lot399/openworld/fireROUTE/.env
+ExecStart=/usr/local/bin/node /home/lot399/openworld/fireROUTE/dist/server.js
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+LimitNOFILE=65536
+MemoryMax=1G
+StandardOutput=append:/var/log/paw/fireroute.log
+StandardError=append:/var/log/paw/fireroute.log
+
+[Install]
+WantedBy=paw.target
