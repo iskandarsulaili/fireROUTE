@@ -86,6 +86,27 @@ const PROVIDER_QUERY_CONTRACT: Record<
     pathOverride: '/bin/api.pl',
   },
 };
+// Endpoints verified live 2026-10-12 (HTTP 200) for providers whose document declared a
+// base URL but no path, so the canonical path was being sent and every call 4xx'd.
+const EXTRA_PROVIDER_ENDPOINTS: Record<string, { path: string; queryDefaults?: Record<string, unknown> }> = {
+  'hebrew-calendar': {
+    path: '/hebcal',
+    queryDefaults: { v: 1, cfg: 'json', year: 2026, month: 10, maj: 'on' },
+  },
+  'wikimedia-commons': {
+    path: '/w/api.php',
+    queryDefaults: { action: 'query', format: 'json', list: 'search', srsearch: 'earth' },
+  },
+  'free-dictionary': { path: '/api/v2/entries/en/hello' },
+  // {ifsc} and {table} are filled from the caller's parameters by BaseAdapter.buildUrl.
+  'razorpay-ifsc': { path: '/{ifsc}' },
+  'national-bank-of-poland': {
+    path: '/exchangerates/tables/{table}/',
+    queryDefaults: { format: 'json' },
+  },
+};
+Object.assign(PROVIDER_QUERY_CONTRACT, EXTRA_PROVIDER_ENDPOINTS);
+
 
 const KEYLESS_RE =
   /no (api )?key|no authentication|without (an )?(api )?key|keyless|no registration|freely accessible|open access|public api|not require (an? )?(api )?key|does not require|do not require|no sign ?-?up/i;

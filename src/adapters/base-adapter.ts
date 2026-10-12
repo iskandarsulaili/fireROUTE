@@ -103,8 +103,27 @@ export abstract class BaseAdapter implements CategoryAdapter {
       const mapped = paramAliases[key] ?? key;
       declaredParams[mapped] = value;
     }
-    const effectiveParams = { ...queryDefaults, ...declaredParams };
-    const effectivePath = metaPath ?? request.path;
+    // A provider may declare its endpoint as a template — the Razorpay IFSC lookup is
+    // /{ifsc} and the NBP table is /exchangerates/tables/{table}/. Measured 2026-10-12:
+    // without substitution those two were sent literally, with the braces, and answered
+    // 4xx. The placeholder is filled from the request's parameters and then removed
+    // from the query string, so a caller passes `ifsc` once and it lands in the path.
+    const consumed = new Set<string>();
+    let resolvedPath = metaPath;
+    if (metaPath && metaPath.includes('{')) {
+      resolvedPath = metaPath.replace(/\{([A-Za-z0-9_]+)\}/g, (match, name: string) => {
+        const value = (request.params ?? {})[name];
+        if (value === undefined || value === null || value === '') return match;
+        consumed.add(name);
+        return encodeURIComponent(String(value));
+      });
+    }
+    const effectiveParams: Record<string, unknown> = { ...queryDefaults };
+    for (const [key, value] of Object.entries(declaredParams)) {
+      if (consumed.has(key)) continue;
+      effectiveParams[key] = value;
+    }
+    const effectivePath = resolvedPath ?? request.path;
 
     const base = provider.baseUrl.replace(/\/$/, '');
     const path = effectivePath.startsWith('/') ? effectivePath : `/${effectivePath}`;

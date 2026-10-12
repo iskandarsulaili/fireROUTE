@@ -36,6 +36,18 @@ GATEWAY = "http://127.0.0.1:3000/v1/execute"
 # actually calls are probed for latency ranking; others are probed for liveness
 # with a harmless GET on their documented path.
 SAMPLE: dict[str, dict] = {
+    # A minimal VALID request per category. Measured lesson (2026-10-12): a bare call
+    # marks parameter-dependent providers healthy when they only answered an empty
+    # request, and the ranking then favours providers the pool cannot actually use.
+    "currency-exchange": {"path": "/", "params": {"table": "A"}},
+    "finance": {"path": "/", "params": {"ifsc": "HDFC0000001"}},
+    "url-shorteners": {"path": "/api/v2/links", "params": {}, "method": "POST",
+                       "body": {"target": "https://example.com"}},
+    "calendar": {"path": "/", "params": {"date": "2026-10-12"}},
+    "dictionaries": {"path": "/", "params": {"word": "hello"}},
+    "news": {"path": "/", "params": {}},
+    "tracking": {"path": "/", "params": {}},
+    "open-data": {"path": "/", "params": {}},
     "weather": {"path": "/v1/forecast", "params": {"latitude": "3.139", "longitude": "101.6869"}},
     "environment": {"path": "/v1/air-quality", "params": {"latitude": "3.139", "longitude": "101.6869"}},
     "personality": {"path": "/api", "params": {}},
@@ -57,16 +69,17 @@ def probe(slug: str, category: str, own_path: str | None) -> dict:
     """
     sample = SAMPLE.get(category) or {"path": "/", "params": {}}
     path = own_path or sample["path"]
-    body = json.dumps(
-        {
-            "category": category,
-            "path": path,
-            "method": "GET",
-            "params": sample.get("params") or {},
-            "forceProvider": slug,
-            "timeout": 8000,
-        }
-    ).encode()
+    payload: dict = {
+        "category": category,
+        "path": path,
+        "method": sample.get("method", "GET"),
+        "params": sample.get("params") or {},
+        "forceProvider": slug,
+        "timeout": 8000,
+    }
+    if sample.get("body") is not None:
+        payload["body"] = sample["body"]
+    body = json.dumps(payload).encode()
     req = urllib.request.Request(
         GATEWAY, data=body, headers={"content-type": "application/json"}, method="POST"
     )
