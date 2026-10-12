@@ -86,6 +86,20 @@ const ACTIVATE: Contract[] = [
   { slug: 'google-books', name: 'Google Books', baseUrl: 'https://www.googleapis.com', path: '/books/v1/volumes', queryDefaults: { q: 'dune' }, acceptedParams: ['q'] },
   { slug: 'open-library', name: 'Open Library', baseUrl: 'https://openlibrary.org', path: '/search.json', queryDefaults: { q: 'dune' }, acceptedParams: ['q'] },
   { slug: 'transport-opendata-ch', name: 'transport.opendata.ch', baseUrl: 'https://transport.opendata.ch', path: '/v1/locations', queryDefaults: { query: 'Zurich' }, acceptedParams: ['query'] },
+  { slug: 'yes-no', path: '/api', acceptedParams: [], note: 'the canonical /api happened to be right; now declared so ranking order cannot break it.' },
+  { slug: 'bacon-ipsum', path: '/api/', queryDefaults: { type: 'meat-and-filler' }, acceptedParams: ['type', 'sentences', 'paragraphs', 'startWithLorem'] },
+  { slug: 'fakestoreapi', path: '/products/1', acceptedParams: [] },
+  { slug: 'uuid-generator', path: '/api/generate/v1', acceptedParams: [] },
+  { slug: 'dicebear-avatars', path: '/9.x/avataaars/json', queryDefaults: { seed: 'test' }, acceptedParams: ['seed', 'size', 'backgroundColor'] },
+  // Declared so a ranking change can never break these categories again: they had no
+  // path, so they passed only when the canonical /api happened to be the right endpoint.
+  { slug: 'cdnjs', path: '/libraries', queryDefaults: { limit: 1 }, acceptedParams: ['limit', 'search'] },
+  { slug: 'icanhazip', path: '/', acceptedParams: [] },
+  { slug: 'my-ip', name: 'my-ip.io', baseUrl: 'https://api.my-ip.io', path: '/v2/ip.json', acceptedParams: [] },
+  { slug: 'advice-slip', path: '/advice', acceptedParams: [] },
+  { slug: 'icanhazdadjoke', path: '/', acceptedParams: [] },
+  { slug: 'kanye-rest', path: '/', acceptedParams: [] },
+  { slug: 'kroki', path: '/health', acceptedParams: [], note: "kroki's real API needs an encoded diagram, so the bare call uses its health endpoint — reachable, and honest about what it returns." },
 ];
 
 /** 2 — cannot serve the category; row kept with the measured reason. */
@@ -98,6 +112,8 @@ const DEACTIVATE: Contract[] = [
   { slug: 'chinese-text-project', deactivateReason: 'No endpoint in the source document and no public API found.' },
   { slug: 'inshorts-news', deactivateReason: 'Its path contains an unresolved {lang} template and the host serves an unofficial, undocumented endpoint.' },
   { slug: 'newsx', deactivateReason: 'Its endpoint is the news site home page (HTML, no API): it exceeded the 8 s provider timeout on every attempt.' },
+  { slug: 'license-api', deactivateReason: 'Hosted on Heroku, which ended free dynos in 2022 — the host no longer resolves for API traffic.' },
+  { slug: 'this-person-does-not-exist', deactivateReason: 'Its image path answers 404 now, and the payload is a JPEG: an image cannot be normalized into this category\'s text/JSON envelope.' },
   { slug: 'florida-man', deactivateReason: 'Its documented endpoint (juliayxhuang.github.io/api/headlines.json) answers 404 — the static file no longer exists.' },
 ];
 
