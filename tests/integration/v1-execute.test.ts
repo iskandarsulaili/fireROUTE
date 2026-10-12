@@ -68,12 +68,14 @@ describe('POST /v1/execute - Valid Requests', () => {
     const body = JSON.parse(response.payload);
 
     expect(response.statusCode).toBe(200);
-    expect(body.data).toHaveProperty('temperature');
+    // The adapter's normalized contract (see UniversalWeatherOutput in
+    // src/adapters/weather-adapter.ts) — the units are in the field names.
+    expect(body.data).toHaveProperty('temperatureCelsius');
     expect(body.data).toHaveProperty('condition');
-    expect(body.data).toHaveProperty('humidity');
-    expect(body.data).toHaveProperty('windSpeed');
-    expect(body.data).toHaveProperty('windDirection');
-    expect(body.data).toHaveProperty('location');
+    expect(body.data).toHaveProperty('humidityPercent');
+    expect(body.data).toHaveProperty('windSpeedKmh');
+    expect(body.data).toHaveProperty('windDirectionDegrees');
+    expect(body.data).toHaveProperty('locationName');
     expect(body.data).toHaveProperty('provider');
   });
 

@@ -264,7 +264,10 @@ export class CircuitBreakerService {
    *   - Set cooldownUntil = now + cooldownMinutes
    *   - Persist to database
    * - If already DEGRADED and failure count keeps growing, mark as DEAD after threshold * 2
-   * - If was a canary probe and fails → DEAD immediately
+   * - A canary probe that fails never escalates: it re-arms the cooldown so the next
+   *   cycle retries, because the probe runs a synthetic request and a transient DNS
+   *   blip must not take a working provider out of service. Escalation to DEAD stays
+   *   with the consecutive-failure threshold below.
    */
   async recordFailure(providerId: string, isCanaryProbe: boolean): Promise<void> {
     try {

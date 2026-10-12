@@ -95,13 +95,19 @@ describe('CircuitBreakerService', () => {
     expect(state?.healthStatus).toBe('HEALTHY');
   });
 
-  it('should mark DEAD on canary failure', async () => {
+  it('should not escalate on a canary failure, and re-arm the cooldown instead', async () => {
     await circuitBreaker.recordFailure(providerId, false);
     await circuitBreaker.recordFailure(providerId, false);
     await circuitBreaker.recordFailure(providerId, false);
     await circuitBreaker.recordFailure(providerId, true);
     const state = await circuitBreaker.getState(providerId);
-    expect(state?.healthStatus).toBe('DEAD');
+    // A canary probe runs a synthetic request, so its failure says nothing about the
+    // provider's real endpoints: a single transient DNS blip used to push a DEGRADED
+    // provider straight to DEAD with a doubled cooldown, taking it out of service for
+    // real traffic. The probe only re-arms the cooldown; escalation belongs to the
+    // consecutive-failure threshold, covered by the next test.
+    expect(state?.healthStatus).not.toBe('DEAD');
+    expect(state?.cooldownUntil).toBeTruthy();
   });
 
   it('should mark DEAD after 6 consecutive failures (threshold*2)', async () => {
