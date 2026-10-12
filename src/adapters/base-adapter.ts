@@ -118,9 +118,22 @@ export abstract class BaseAdapter implements CategoryAdapter {
         return encodeURIComponent(String(value));
       });
     }
+    // A provider may declare which caller parameters it accepts. Everything else is
+    // dropped, because an unexpected query parameter can break an endpoint outright:
+    // measured 2026-10-12, https://api.dictionaryapi.dev/api/v2/entries/en/hello
+    // answers 200 in 0.23 s, while the same URL with an unrelated ?word=hello appended
+    // hung for 20 s and never answered. The pool forwards the caller's parameters to
+    // every provider, so without this a category dies on a working provider because the
+    // caller happened to pass something for a *different* provider in the same category.
+    // Absent the declaration the previous behaviour stands (forward everything), which
+    // is what providers that genuinely take coordinates or search terms rely on.
+    const accepted = Array.isArray(meta['acceptedParams'])
+      ? new Set((meta['acceptedParams'] as unknown[]).map(String))
+      : null;
     const effectiveParams: Record<string, unknown> = { ...queryDefaults };
     for (const [key, value] of Object.entries(declaredParams)) {
       if (consumed.has(key)) continue;
+      if (accepted && !accepted.has(key)) continue;
       effectiveParams[key] = value;
     }
     const effectivePath = resolvedPath ?? request.path;
